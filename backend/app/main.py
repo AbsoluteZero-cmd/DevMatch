@@ -10,6 +10,7 @@ from contextlib import asynccontextmanager
 from app.core.config import settings
 from app.db.session import SessionLocal
 from app.api.router import api_router
+from app.api.ws import router as ws_router
 
 import logging
 
@@ -48,6 +49,8 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+app.include_router(ws_router, tags=["websocket"])
 
 app.include_router(api_router, prefix=settings.API_STR)
 
