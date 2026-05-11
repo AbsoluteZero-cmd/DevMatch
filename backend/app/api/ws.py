@@ -2,17 +2,20 @@ from fastapi import (
     APIRouter,
     Depends,
     HTTPException,
+    Query,
     WebSocket,
     WebSocketDisconnect,
     status,
 )
 from sqlalchemy.orm import Session
-from app.core.dependencies import get_db, get_current_user
+from app.core.dependencies import get_db
 from app.models.user import User
 from app.models.message import Message
 from app.services.websocket_manager import ConnectionManager
 
 import json
+
+from app.core.security import decode_access_token
 
 router = APIRouter()
 
@@ -22,8 +25,25 @@ async def websocket_endpoint(
     websocket: WebSocket,
     room_id: int,
     db: Session = Depends(get_db),
-    user: User = Depends(get_current_user),
+    token: str = Query(None),
 ):
+    if not token:
+        await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
+        return
+
+    access_token_data = decode_access_token(token)
+    if not access_token_data or access_token_data.get("type") != "access":
+        await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
+        return
+    user_id = access_token_data.get("sub")
+    if not user_id:
+        await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
+        return
+
+    user = db.query(User).filter(User.id == int(user_id)).first()
+    if not user:
+        await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
+        return
 
     manager = ConnectionManager()
 

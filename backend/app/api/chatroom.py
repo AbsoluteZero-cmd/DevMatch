@@ -30,7 +30,7 @@ class ChatRoomResponse(BaseModel):
     is_active: bool
 
     class Config:
-        orm_mode = True
+        from_attributes = True
 
 
 class MessageResponse(BaseModel):
@@ -42,7 +42,7 @@ class MessageResponse(BaseModel):
     created_at: str
 
     class Config:
-        orm_mode = True
+        from_attributes = True
 
 
 @router.post("/rooms/", response_model=ChatRoomResponse)

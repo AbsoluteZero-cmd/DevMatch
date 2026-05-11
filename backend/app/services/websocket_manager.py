@@ -1,7 +1,6 @@
-from fastapi import WebSocket, WebSocketDisconnect, Depends
+from fastapi import WebSocket
 from typing import Dict, List
 import json
-import asyncio
 
 
 class ConnectionManager:
