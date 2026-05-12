@@ -12,6 +12,7 @@ from app.core.security import (
     create_refresh_token,
 )
 from app.models.user import User
+from app.models.profile import Profile
 
 router = APIRouter()
 
@@ -35,16 +36,22 @@ async def register(payload: UserRegister, db: Session = Depends(get_db)):
             detail="Email already registered",
         )
 
-    db.add(
-        User(
-            full_name=payload.full_name,
-            email=payload.email,
-            hashed_password=get_password_hash(payload.password),
-        )
+    user = User(
+        full_name=payload.full_name,
+        email=payload.email,
+        hashed_password=get_password_hash(payload.password),
     )
+    db.add(user)  # register user
+    db.flush()
+    db.add(
+        Profile(
+            user_id=user.id,
+            full_name=payload.full_name,
+        )
+    )  # create empty profile for the user
     db.commit()
 
-    return {"message": "User created successfully"}
+    return {"message": "User and Profile created successfully"}
 
 
 @router.post("/login")
