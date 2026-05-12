@@ -17,3 +17,6 @@ class User(Base):
     # Relationships
     messages = relationship("Message", back_populates="user")
     rooms_created = relationship("ChatRoom", back_populates="created_by")
+    profile: Mapped["Profile"] = relationship(
+        "Profile", back_populates="user", uselist=False
+    )
