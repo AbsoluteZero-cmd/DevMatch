@@ -87,7 +87,7 @@ async def refresh_access_token(refresh_token: str, db: Session = Depends(get_db)
             detail="Refresh token expired",
         )
 
-    user_id = payload.get("sub")
+    user_id = int(payload.get("sub"))
     user = db.query(User).filter(User.id == user_id).first()
 
     if not user:
