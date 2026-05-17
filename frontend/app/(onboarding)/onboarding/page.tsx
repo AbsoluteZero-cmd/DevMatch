@@ -3,6 +3,7 @@
 import { useState } from "react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
+import { fetchProtectedApi } from "@/lib/api"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -65,6 +66,9 @@ export default function OnboardingPage() {
     huggingfaceUsername: "",
   })
 
+  const [saving, setSaving] = useState(false)
+  const [saveError, setSaveError] = useState<string | null>(null)
+
   const totalSteps = 5
   const progress = (step / totalSteps) * 100
 
@@ -120,12 +124,86 @@ export default function OnboardingPage() {
     }
   }
 
-  const handleNext = () => {
+  const handleNext = async () => {
     if (step < 5) {
       setStep((step + 1) as Step)
     } else {
-      // Redirect to AI analysis
-      router.push("/onboarding/analysis")
+      // Save all profile data before redirecting to analysis
+      setSaving(true)
+      setSaveError(null)
+      try {
+        const json = (body: object) => ({
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        })
+
+        // 1. Basic info
+        await fetchProtectedApi("/profile/me", {
+          method: "PATCH",
+          ...json({ full_name: profile.displayName || null, years_experience: null }),
+        })
+
+        // 2. Education
+        if (profile.university.trim()) {
+          await fetchProtectedApi("/profile/education", {
+            method: "POST",
+            ...json({
+              institution_name: profile.university,
+              degree: "Bachelor's Degree",
+              major: profile.major || null,
+              graduation_year: profile.graduationYear ? parseInt(profile.graduationYear) : null,
+            }),
+          })
+        }
+
+        // 3. Projects
+        for (const proj of profile.projects) {
+          await fetchProtectedApi("/profile/projects", {
+            method: "POST",
+            ...json({
+              project_name: proj.name,
+              description: proj.description || null,
+              technologies_used: null,
+              role: null,
+            }),
+          })
+        }
+
+        // 4. Skill tags
+        for (const skill of profile.skills) {
+          await fetchProtectedApi("/profile/tags", {
+            method: "POST",
+            ...json({ name: skill.name, is_ai_generated: false }),
+          })
+        }
+
+        // 5. External links
+        if (profile.githubUsername.trim()) {
+          await fetchProtectedApi("/profile/links", {
+            method: "POST",
+            ...json({
+              url_type: "GITHUB",
+              url_str: `https://github.com/${profile.githubUsername}`,
+              source: "MANUAL",
+            }),
+          })
+        }
+        if (profile.huggingfaceUsername.trim()) {
+          await fetchProtectedApi("/profile/links", {
+            method: "POST",
+            ...json({
+              url_type: "HUGGING_FACE",
+              url_str: `https://huggingface.co/${profile.huggingfaceUsername}`,
+              source: "MANUAL",
+            }),
+          })
+        }
+
+        router.push("/onboarding/analysis")
+      } catch (err) {
+        setSaveError(err instanceof Error ? err.message : "Failed to save profile. Please try again.")
+        setSaving(false)
+      }
     }
   }
 
@@ -500,22 +578,27 @@ export default function OnboardingPage() {
           )}
 
           {/* Navigation */}
-          <div className="flex items-center justify-between border-t border-border p-6">
-            <Button
-              variant="ghost"
-              onClick={handleBack}
-              disabled={step === 1}
-            >
-              <ArrowLeft className="h-4 w-4 mr-2" />
-              Back
-            </Button>
-            <Button
-              onClick={handleNext}
-              disabled={!canProceed()}
-            >
-              {step === 5 ? "Run AI Analysis" : "Continue"}
-              <ArrowRight className="h-4 w-4 ml-2" />
-            </Button>
+          <div className="flex flex-col gap-2 border-t border-border p-6">
+            {saveError && (
+              <p className="text-sm text-destructive text-center">{saveError}</p>
+            )}
+            <div className="flex items-center justify-between">
+              <Button
+                variant="ghost"
+                onClick={handleBack}
+                disabled={step === 1 || saving}
+              >
+                <ArrowLeft className="h-4 w-4 mr-2" />
+                Back
+              </Button>
+              <Button
+                onClick={handleNext}
+                disabled={!canProceed() || saving}
+              >
+                {saving ? "Saving…" : step === 5 ? "Run AI Analysis" : "Continue"}
+                {!saving && <ArrowRight className="h-4 w-4 ml-2" />}
+              </Button>
+            </div>
           </div>
         </Card>
       </main>
