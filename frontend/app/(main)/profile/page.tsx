@@ -66,10 +66,33 @@ export default function ProfilePage() {
 	const auth = useAuth();
 	const user = auth.user;
 
-	const displayName = user?.name ?? profileData.name;
+	const displayName = user?.full_name ?? profileData.name;
 	const displayBio = user?.email
 		? `Logged in as ${user.email}. Update your profile and see your recent activity.`
 		: profileData.bio;
+
+	useEffect(() => {
+		console.log('ProfilePage mounted with user:', user);
+	}, []);
+
+	if (auth.isLoading) {
+		return (
+			<div className='flex h-screen items-center justify-center'>
+				<div className='animate-spin rounded-full h-16 w-16 border-t-4 border-blue-500'></div>
+			</div>
+		);
+	}
+
+	if (!user) {
+		return (
+			<div className='flex h-screen items-center justify-center flex-col gap-4'>
+				<p className='text-lg text-muted-foreground'>You are not logged in.</p>
+				<a href='/login' className='text-blue-500 hover:underline'>
+					Go to Login
+				</a>
+			</div>
+		);
+	}
 
 	return (
 		<main className='mx-auto max-w-4xl px-4 py-8 sm:px-6 lg:px-8'>
@@ -99,7 +122,7 @@ export default function ProfilePage() {
 							<div className='rounded-lg border border-border bg-background/50 p-4'>
 								<p className='text-sm text-muted-foreground'>Name</p>
 								<p className='mt-1 text-base font-medium text-foreground'>
-									{user.name}
+									{user.full_name}
 								</p>
 							</div>
 							<div className='rounded-lg border border-border bg-background/50 p-4'>
