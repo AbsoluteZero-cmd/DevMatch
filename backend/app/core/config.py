@@ -16,8 +16,8 @@ class Settings(BaseSettings):
     REFRESH_TOKEN_EXPIRE_DAYS: int = 30
 
     BACKEND_CORS_ORIGINS: list[str] = [
-        "http://localhost:3000",
-        "http://localhost:8080",
+        "http://localhost:3001",
+        "http://localhost:8000",
         "*",
     ]
 

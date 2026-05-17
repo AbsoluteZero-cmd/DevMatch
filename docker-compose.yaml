@@ -1,4 +1,17 @@
 services:
+  frontend:
+    build: ./frontend
+    container_name: frontend
+    restart: unless-stopped
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+      - /app/.next
+    ports:
+      - '3001:3000' # Next.js default
+    environment:
+      - WATCHPACK_POLLING=true # Helps Hot Reload work inside Docker
+
   backend:
     build: ./backend
     container_name: backend

@@ -1,77 +1,147 @@
-"use client"
+'use client';
 
-import { createContext, useContext, useState, useEffect, ReactNode } from "react"
+import {
+	createContext,
+	useContext,
+	useState,
+	useEffect,
+	ReactNode,
+} from 'react';
+import {
+	AuthTokens,
+	clearAuthTokens,
+	getCurrentUser,
+	getStoredAuthTokens,
+	saveAuthTokens,
+} from '@/lib/api';
 
-export type UserRole = "developer" | "team-leader"
+export type UserRole = 'developer' | 'team-leader';
 
 export interface User {
-  id: string
-  name: string
-  email: string
-  role: UserRole
+	id: string;
+	name: string;
+	email: string;
+	role?: UserRole;
+}
+
+export interface LoginCredentials {
+	email: string;
+	password: string;
 }
 
 interface AuthContextType {
-  user: User | null
-  isLoading: boolean
-  login: (user: User) => void
-  logout: () => void
-  isAuthenticated: boolean
+	user: User | null;
+	isLoading: boolean;
+	login: (credentials: LoginCredentials) => Promise<AuthTokens>;
+	logout: () => void;
+	isAuthenticated: boolean;
 }
 
-const AuthContext = createContext<AuthContextType | undefined>(undefined)
-
-const AUTH_STORAGE_KEY = "devmatch_auth"
+const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [user, setUser] = useState<User | null>(null)
-  const [isLoading, setIsLoading] = useState(true)
+	const [user, setUser] = useState<User | null>(null);
+	const [isLoading, setIsLoading] = useState(true);
 
-  // Load auth state from localStorage on mount
-  useEffect(() => {
-    try {
-      const stored = localStorage.getItem(AUTH_STORAGE_KEY)
-      if (stored) {
-        const parsedUser = JSON.parse(stored) as User
-        setUser(parsedUser)
-      }
-    } catch (error) {
-      console.error("Failed to load auth state:", error)
-      localStorage.removeItem(AUTH_STORAGE_KEY)
-    } finally {
-      setIsLoading(false)
-    }
-  }, [])
+	useEffect(() => {
+		const restoreAuth = async () => {
+			const storedTokens = getStoredAuthTokens();
+			if (!storedTokens) {
+				setIsLoading(false);
+				return;
+			}
 
-  const login = (newUser: User) => {
-    setUser(newUser)
-    localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(newUser))
-  }
+			try {
+				const currentUser = await getCurrentUser<{
+					id: number;
+					full_name: string;
+					email: string;
+				}>();
+				setUser({
+					id: currentUser.id.toString(),
+					name: currentUser.full_name,
+					email: currentUser.email,
+				});
+			} catch (error) {
+				console.error('Failed to restore auth state:', error);
+				clearAuthTokens();
+			} finally {
+				setIsLoading(false);
+			}
+		};
 
-  const logout = () => {
-    setUser(null)
-    localStorage.removeItem(AUTH_STORAGE_KEY)
-  }
+		restoreAuth();
+	}, []);
 
-  return (
-    <AuthContext.Provider
-      value={{
-        user,
-        isLoading,
-        login,
-        logout,
-        isAuthenticated: !!user,
-      }}
-    >
-      {children}
-    </AuthContext.Provider>
-  )
+	const login = async (credentials: LoginCredentials) => {
+		const body = new URLSearchParams();
+		body.append('username', credentials.email);
+		body.append('password', credentials.password);
+
+		const response = await fetch(
+			process.env.NEXT_PUBLIC_BACKEND_URL
+				? `${process.env.NEXT_PUBLIC_BACKEND_URL}/api/v1/auth/login`
+				: 'http://localhost:8000/api/v1/auth/login',
+			{
+				method: 'POST',
+				headers: {
+					'Content-Type': 'application/x-www-form-urlencoded',
+				},
+				body: body.toString(),
+			},
+		);
+
+		if (!response.ok) {
+			const errorText = await response.text();
+			console.error('Login failed with status:', response.status, errorText);
+			throw new Error('Login failed');
+		}
+
+		const authData = (await response.json()) as AuthTokens;
+		saveAuthTokens(authData);
+
+		try {
+			const currentUser = await getCurrentUser<{
+				id: number;
+				full_name: string;
+				email: string;
+			}>();
+			setUser({
+				id: currentUser.id.toString(),
+				name: currentUser.full_name,
+				email: currentUser.email,
+			});
+		} catch (error) {
+			console.error('Unable to load user information after login', error);
+		}
+
+		return authData;
+	};
+
+	const logout = () => {
+		setUser(null);
+		clearAuthTokens();
+	};
+
+	return (
+		<AuthContext.Provider
+			value={{
+				user,
+				isLoading,
+				login,
+				logout,
+				isAuthenticated: !!user,
+			}}
+		>
+			{children}
+		</AuthContext.Provider>
+	);
 }
 
 export function useAuth() {
-  const context = useContext(AuthContext)
-  if (context === undefined) {
-    throw new Error("useAuth must be used within an AuthProvider")
-  }
-  return context
+	const context = useContext(AuthContext);
+	if (context === undefined) {
+		throw new Error('useAuth must be used within an AuthProvider');
+	}
+	return context;
 }

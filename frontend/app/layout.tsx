@@ -1,52 +1,59 @@
-import type { Metadata } from 'next'
-import { Inter, Geist_Mono } from 'next/font/google'
-import { Analytics } from '@vercel/analytics/next'
-import './globals.css'
+import type { Metadata } from 'next';
+import { Inter, Geist_Mono } from 'next/font/google';
+import { Analytics } from '@vercel/analytics/next';
+import './globals.css';
+import { AuthProvider } from '@/contexts/auth-context';
 
-const inter = Inter({ 
-  subsets: ["latin"],
-  variable: '--font-inter'
+const inter = Inter({
+	subsets: ['latin'],
+	variable: '--font-inter',
 });
 
-const geistMono = Geist_Mono({ 
-  subsets: ["latin"],
-  variable: '--font-geist-mono'
+const geistMono = Geist_Mono({
+	subsets: ['latin'],
+	variable: '--font-geist-mono',
 });
 
 export const metadata: Metadata = {
-  title: 'DevMatch - Connect with Student Developers',
-  description: 'Find and connect with talented student developers for your next project',
-  generator: 'v0.app',
-  icons: {
-    icon: [
-      {
-        url: '/icon-light-32x32.png',
-        media: '(prefers-color-scheme: light)',
-      },
-      {
-        url: '/icon-dark-32x32.png',
-        media: '(prefers-color-scheme: dark)',
-      },
-      {
-        url: '/icon.svg',
-        type: 'image/svg+xml',
-      },
-    ],
-    apple: '/apple-icon.png',
-  },
-}
+	title: 'DevMatch - Connect with Student Developers',
+	description:
+		'Find and connect with talented student developers for your next project',
+	generator: 'v0.app',
+	icons: {
+		icon: [
+			{
+				url: '/icon-light-32x32.png',
+				media: '(prefers-color-scheme: light)',
+			},
+			{
+				url: '/icon-dark-32x32.png',
+				media: '(prefers-color-scheme: dark)',
+			},
+			{
+				url: '/icon.svg',
+				type: 'image/svg+xml',
+			},
+		],
+		apple: '/apple-icon.png',
+	},
+};
 
 export default function RootLayout({
-  children,
+	children,
 }: Readonly<{
-  children: React.ReactNode
+	children: React.ReactNode;
 }>) {
-  return (
-    <html lang="en" className={`${inter.variable} ${geistMono.variable} bg-background`}>
-      <body className="font-sans antialiased">
-        {children}
-        {process.env.NODE_ENV === 'production' && <Analytics />}
-      </body>
-    </html>
-  )
+	return (
+		<html
+			lang='en'
+			className={`${inter.variable} ${geistMono.variable} bg-background`}
+		>
+			<body className='font-sans antialiased'>
+				<AuthProvider>
+					{children}
+					{process.env.NODE_ENV === 'production' && <Analytics />}
+				</AuthProvider>
+			</body>
+		</html>
+	);
 }
