@@ -63,7 +63,7 @@ export default function RegisterPage() {
 			});
 			setIsLoading(false);
 			// Redirect to dashboard after successful registration
-			router.push('/dashboard');
+			router.push('/login');
 		}
 	};
 
