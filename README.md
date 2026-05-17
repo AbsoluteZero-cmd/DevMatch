@@ -2,9 +2,11 @@
 
 CS350 Project by Team 8
 
-http://localhost:8000/api/v1/docs
+http://localhost:8000/api/v1/docs - backend
 
-https://localhost:3001
+https://localhost:3001 - frontend
+
+run `docker compose up --build` to start app
 
 # Project structure (TBD)
 
