@@ -20,6 +20,7 @@ class Settings(BaseSettings):
     HUGGINGFACE_CLIENT_ID: Optional[str] = None
     HUGGINGFACE_CLIENT_SECRET: Optional[str] = None
     OAUTH_CALLBACK_BASE_URL: str = "http://localhost:8000"
+    FRONTEND_BASE_URL: str = "http://localhost:3001"
 
     BACKEND_CORS_ORIGINS: list[str] = [
         "http://localhost:3001",

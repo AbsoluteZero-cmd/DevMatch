@@ -1,7 +1,9 @@
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
+from fastapi.responses import RedirectResponse
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
+from app.core.config import settings
 from app.core.dependencies import get_current_user, get_db
 from app.models.user import User
 from app.services.oauth_handler import (
@@ -30,6 +32,24 @@ class OAuthCallbackResponse(BaseModel):
     parse_status: str
 
 
+class OAuthStatusResponse(BaseModel):
+    provider: str
+    configured: bool
+
+
+@router.get("/{provider}/status", response_model=OAuthStatusResponse)
+async def oauth_status(provider: OAuthAppProvider):
+    configured = bool(
+        provider == OAuthAppProvider.GITHUB
+        and settings.GITHUB_CLIENT_ID
+        and settings.GITHUB_CLIENT_SECRET
+        or provider == OAuthAppProvider.HUGGING_FACE
+        and settings.HUGGINGFACE_CLIENT_ID
+        and settings.HUGGINGFACE_CLIENT_SECRET
+    )
+    return OAuthStatusResponse(provider=provider.value, configured=configured)
+
+
 @router.get("/{provider}/authorize", response_model=OAuthAuthorizeResponse)
 async def oauth_authorize(
     provider: OAuthAppProvider,
@@ -43,7 +63,7 @@ async def oauth_authorize(
     )
 
 
-@router.get("/{provider}/callback", response_model=OAuthCallbackResponse)
+@router.get("/{provider}/callback")
 async def oauth_callback(
     provider: OAuthAppProvider,
     background_tasks: BackgroundTasks,
@@ -80,9 +100,7 @@ async def oauth_callback(
 
     background_tasks.add_task(refresh_profile_external_metrics, str(profile.id))
 
-    return OAuthCallbackResponse(
-        provider=provider.value,
-        message="OAuth account linked. Parsing scheduled",
-        profile_id=str(profile.id),
-        parse_status="PENDING",
+    return RedirectResponse(
+        url=f"{settings.FRONTEND_BASE_URL.rstrip('/')}/profile?oauth={provider.value}",
+        status_code=status.HTTP_303_SEE_OTHER,
     )

@@ -728,6 +728,16 @@ async def delete_link(
 # ============================================================================
 
 
+@router.get("/tags", response_model=List[SkillTagRead])
+async def list_skill_tags(
+    db: Session = Depends(get_db),
+):
+    tags = db.query(SkillTag).all()
+    return [
+        SkillTagRead(id=tag.id, name=tag.name, is_ai_generated=False) for tag in tags
+    ]
+
+
 @router.post("/tags", response_model=ProfileRead, status_code=status.HTTP_201_CREATED)
 async def add_skill_tag(
     payload: SkillTagCreate,
@@ -797,12 +807,21 @@ async def upsert_skill_tags(
 ):
     profile = _require_profile(current_user, db)
 
-    normalized_tags = [tag.strip() for tag in payload.tags if tag and tag.strip()]
-    if not normalized_tags:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="At least one tag is required",
-        )
+    normalized_tags = list(
+        dict.fromkeys(tag.strip() for tag in payload.tags if tag and tag.strip())
+    )
+
+    current_links = (
+        db.query(ProfileSkillTag)
+        .join(SkillTag)
+        .filter(ProfileSkillTag.profile_id == profile.id)
+        .all()
+    )
+
+    desired_tag_names = set(normalized_tags)
+    for link in current_links:
+        if link.skill_tag.name not in desired_tag_names:
+            db.delete(link)
 
     for tag_name in normalized_tags:
         tag = db.query(SkillTag).filter(SkillTag.name == tag_name).first()
