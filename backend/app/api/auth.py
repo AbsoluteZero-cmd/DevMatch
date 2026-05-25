@@ -1,8 +1,11 @@
+from datetime import datetime, timedelta
+
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordRequestForm
-from jose import ExpiredSignatureError
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
+
+from app.core.config import settings
 from app.core.dependencies import get_db, get_current_user
 from app.core.security import (
     decode_access_token,
@@ -13,6 +16,7 @@ from app.core.security import (
 )
 from app.models.user import User
 from app.models.profile import Profile
+from app.models.refresh_token import RefreshToken
 
 router = APIRouter()
 
@@ -28,6 +32,26 @@ class UserIn(BaseModel):
     password: str
 
 
+class RefreshTokenRequest(BaseModel):
+    refresh_token: str
+
+
+def _create_and_store_tokens(user: User, db: Session) -> dict:
+    access_token = create_access_token(data={"sub": str(user.id)})
+    refresh_token = create_refresh_token(data={"sub": str(user.id)})
+
+    expires_at = datetime.utcnow() + timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS)
+    db_token = RefreshToken(
+        token=refresh_token,
+        user_id=user.id,
+        expires_at=expires_at,
+    )
+    db.add(db_token)
+    db.commit()
+
+    return {"access_token": access_token, "refresh_token": refresh_token}
+
+
 @router.post("/register", status_code=status.HTTP_201_CREATED)
 async def register(payload: UserRegister, db: Session = Depends(get_db)):
     if db.query(User).filter(User.email == payload.email).first():
@@ -41,14 +65,14 @@ async def register(payload: UserRegister, db: Session = Depends(get_db)):
         email=payload.email,
         hashed_password=get_password_hash(payload.password),
     )
-    db.add(user)  # register user
+    db.add(user)
     db.flush()
     db.add(
         Profile(
             user_id=user.id,
             full_name=payload.full_name,
         )
-    )  # create empty profile for the user
+    )
     db.commit()
 
     return {"message": "User and Profile created successfully"}
@@ -66,22 +90,38 @@ async def login(
             detail="Invalid email or password",
         )
 
-    access_token = create_access_token(data={"sub": str(user.id)})
-    refresh_token = create_refresh_token(data={"sub": str(user.id)})
-
-    return {"access_token": access_token, "refresh_token": refresh_token}
+    return _create_and_store_tokens(user, db)
 
 
 @router.post("/refresh")
-async def refresh_access_token(refresh_token: str, db: Session = Depends(get_db)):
-    try:
-        payload = decode_access_token(refresh_token)
-        if payload is None or payload.get("type") != "refresh":
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Invalid refresh token",
-            )
-    except ExpiredSignatureError:
+async def refresh_access_token(
+    body: RefreshTokenRequest, db: Session = Depends(get_db)
+):
+    payload = decode_access_token(body.refresh_token)
+    if payload is None or payload.get("type") != "refresh":
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid refresh token",
+        )
+
+    db_token = (
+        db.query(RefreshToken)
+        .filter(
+            RefreshToken.token == body.refresh_token,
+            RefreshToken.revoked == False,
+        )
+        .first()
+    )
+
+    if not db_token:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Refresh token not found or revoked",
+        )
+
+    if db_token.expires_at < datetime.utcnow():
+        db_token.revoked = True
+        db.commit()
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Refresh token expired",
@@ -96,10 +136,24 @@ async def refresh_access_token(refresh_token: str, db: Session = Depends(get_db)
             detail="User not found",
         )
 
-    new_access_token = create_access_token(data={"sub": str(user.id)})
-    new_refresh_token = create_refresh_token(data={"sub": str(user.id)})
+    db_token.revoked = True
+    db.commit()
 
-    return {"access_token": new_access_token, "refresh_token": new_refresh_token}
+    return _create_and_store_tokens(user, db)
+
+
+@router.post("/logout")
+async def logout(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    db.query(RefreshToken).filter(
+        RefreshToken.user_id == current_user.id,
+        RefreshToken.revoked == False,
+    ).update({"revoked": True})
+    db.commit()
+
+    return {"message": "Logged out successfully"}
 
 
 @router.get("/me")

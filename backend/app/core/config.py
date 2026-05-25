@@ -14,7 +14,7 @@ class Settings(BaseSettings):
 
     SECRET_KEY: str = "SECRET_KEY"
     ALGORITHM: str = "HS256"
-    ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = 1440
     REFRESH_TOKEN_EXPIRE_DAYS: int = 30
     OAUTH_TOKEN_ENCRYPTION_KEY: Optional[str] = None
     GITHUB_CLIENT_ID: Optional[str] = None

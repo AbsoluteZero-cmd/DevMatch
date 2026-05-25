@@ -13,6 +13,7 @@ import {
 	getCurrentUser,
 	getStoredAuthTokens,
 	saveAuthTokens,
+	logoutApi,
 } from '@/lib/api';
 
 export type UserRole = 'developer' | 'team-leader';
@@ -70,8 +71,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 					full_name: currentUser.full_name,
 					email: currentUser.email,
 				});
-			} catch (error) {
-				console.error('Failed to restore auth state:', error);
+			} catch {
 				clearAuthTokens();
 			} finally {
 				setIsLoading(false);
@@ -100,8 +100,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 		);
 
 		if (!response.ok) {
-			const errorText = await response.text();
-			console.error('Login failed with status:', response.status, errorText);
 			throw new Error('Login failed');
 		}
 
@@ -119,8 +117,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 				full_name: currentUser.full_name,
 				email: currentUser.email,
 			});
-		} catch (error) {
-			console.error('Unable to load user information after login', error);
+		} catch {
+			// tokens saved, user will be loaded on next navigation
 		}
 
 		return authData;
@@ -141,12 +139,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 		);
 
 		if (!response.ok) {
-			const errorText = await response.text();
-			console.error(
-				'Registration failed with status:',
-				response.status,
-				errorText,
-			);
 			throw new Error('Registration failed');
 		}
 
@@ -154,8 +146,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 	};
 
 	const logout = () => {
+		logoutApi();
 		setUser(null);
-		clearAuthTokens();
 	};
 
 	return (

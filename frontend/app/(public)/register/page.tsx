@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import {
@@ -30,7 +30,7 @@ type AccountType = 'developer' | 'team-leader';
 export default function RegisterPage() {
 	const router = useRouter();
 	const auth = useAuth();
-	const { register } = auth;
+	const { register, user } = auth;
 
 	const [accountType, setAccountType] = useState<AccountType>('developer');
 	const [showPassword, setShowPassword] = useState(false);
@@ -66,6 +66,14 @@ export default function RegisterPage() {
 			router.push('/login');
 		}
 	};
+
+	useEffect(() => {
+		if (user) {
+			router.push('/dashboard');
+		}
+	}, [user, router]);
+
+	if (user) return null;
 
 	return (
 		<div className='flex min-h-screen flex-col bg-background'>

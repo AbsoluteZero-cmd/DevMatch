@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import {
@@ -18,7 +18,7 @@ import { Eye, EyeOff, AlertCircle, Loader2 } from 'lucide-react';
 import { useAuth } from '@/contexts/auth-context';
 
 export default function LoginPage() {
-	const { login } = useAuth();
+	const { login, user } = useAuth();
 	const router = useRouter();
 	const [showPassword, setShowPassword] = useState(false);
 	const [email, setEmail] = useState('');
@@ -38,34 +38,23 @@ export default function LoginPage() {
 		setIsLoading(true);
 		setError('');
 
-		console.log('Attempting login with:', { email, password });
-
-		const response = await login({
-			email,
-			password,
-		});
-
-		console.log('Login response:', response);
-
-		if (!response) {
-			setError('Login failed. Please check your credentials and try again.');
-			setIsLoading(false);
-			return;
-		}
-
-		// Mock: Check if user is "new" (simulated first-time login)
-		const isFirstTimeUser = email.includes('new');
-
-		setIsLoading(false);
-
-		if (isFirstTimeUser) {
-			// Redirect to onboarding for first-time users
-			router.push('/onboarding');
-		} else {
-			// Redirect to dashboard for returning users
+		try {
+			await login({ email, password });
 			router.push('/dashboard');
+		} catch {
+			setError('Login failed. Please check your credentials and try again.');
+		} finally {
+			setIsLoading(false);
 		}
 	};
+
+	useEffect(() => {
+		if (user) {
+			router.push('/dashboard');
+		}
+	}, [user, router]);
+
+	if (user) return null;
 
 	return (
 		<div className='flex min-h-screen flex-col bg-background'>

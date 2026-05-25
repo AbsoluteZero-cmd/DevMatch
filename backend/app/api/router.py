@@ -1,6 +1,6 @@
 from fastapi import APIRouter
 
-from app.api import auth, chatroom, profile, ai, team
+from app.api import auth, chatroom, profile, ai, team, oauth
 
 api_router = APIRouter()
 

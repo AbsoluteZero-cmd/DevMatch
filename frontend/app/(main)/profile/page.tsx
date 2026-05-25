@@ -130,6 +130,10 @@ export default function ProfilePage() {
     years_experience: "",
   });
 
+  const logout = () => {
+    auth.logout();
+  }
+
   useEffect(() => {
     if (profile) {
       setTopEdit({
@@ -252,6 +256,12 @@ export default function ProfilePage() {
             onClick={() => setEditMode((value) => !value)}
           >
             {editMode ? "Exit edit" : "Edit profile"}
+          </button>
+          <button
+            className="rounded-md border px-3 py-1 text-sm"
+            onClick={() => logout()}
+          >
+            Logout
           </button>
         </div>
 
