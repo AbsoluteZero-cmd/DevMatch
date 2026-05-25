@@ -11,6 +11,7 @@ from app.models.user import User
 from app.models.chatroom import ChatRoom
 from app.models.message import Message
 from app.models.profile import Profile
+from app.models.team import Team, TeamMember, JobPosting, CandidateRecommendation
 from app.models.oauth_token import OAuthToken
 
 # this is the Alembic Config object, which provides

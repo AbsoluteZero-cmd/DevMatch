@@ -10,6 +10,8 @@ class Settings(BaseSettings):
 
     DATABASE_URL: str = "postgresql://user:password@db:5432/devmatch_db"
 
+    GROQ_API_KEY: str = ""  # Set in .env — never expose to client (NFR-15)
+
     SECRET_KEY: str = "SECRET_KEY"
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
