@@ -9,6 +9,7 @@ from sqlalchemy import (
     Enum as SAEnum,
     ForeignKey,
     Integer,
+    JSON,
     String,
     Text,
     UniqueConstraint,
@@ -49,6 +50,12 @@ class ExternalURLType(str, Enum):
 class ExternalURLSource(str, Enum):
     MANUAL = "MANUAL"
     OAUTH_LINKED = "OAUTH_LINKED"
+
+
+class ExternalURLParseStatus(str, Enum):
+    PENDING = "PENDING"
+    SUCCESS = "SUCCESS"
+    FAILED = "FAILED"
 
 
 class Profile(Base):
@@ -188,8 +195,25 @@ class ExternalURL(Base):
         nullable=False,
     )
     is_hidden: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    parse_status: Mapped[ExternalURLParseStatus] = mapped_column(
+        SAEnum(ExternalURLParseStatus, name="external_url_parse_status"),
+        default=ExternalURLParseStatus.PENDING,
+        nullable=False,
+    )
+    parse_message: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    parsed_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    parsed_repo_list: Mapped[Optional[list[dict]]] = mapped_column(JSON, nullable=True)
+    parsed_commit_count: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    parsed_hf_model_count: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    parsed_hf_dataset_count: Mapped[Optional[int]] = mapped_column(
+        Integer, nullable=True
+    )
 
     profile: Mapped["Profile"] = relationship("Profile", back_populates="external_urls")
+
+    __table_args__ = (
+        UniqueConstraint("profile_id", "type", name="uq_external_url_profile_type"),
+    )
 
 
 class SkillTag(Base):

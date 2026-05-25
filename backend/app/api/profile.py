@@ -1,15 +1,18 @@
+from datetime import datetime
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy.orm import Session, selectinload
 
 from app.core.dependencies import get_current_user, get_db
+from app.models.oauth_token import OAuthProvider, OAuthToken
 from app.models.profile import (
     DegreeType,
     Education,
     ExternalURL,
     ExternalURLSource,
+    ExternalURLParseStatus,
     ExternalURLType,
     Profile,
     ProfileRole,
@@ -20,8 +23,19 @@ from app.models.profile import (
     SkillTag,
 )
 from app.models.user import User
+from app.services.profile_refresh import (
+    refresh_profile_external_metrics,
+    reset_external_url_parse_status,
+)
+from app.utils.crypto import encrypt_secret
 
 router = APIRouter()
+
+_VISIBLE_ROLE_LEVELS = {
+    SkillLevel.INTERMEDIATE,
+    SkillLevel.ADVANCED,
+    SkillLevel.EXPERT,
+}
 
 
 class EducationRead(BaseModel):
@@ -52,6 +66,9 @@ class ExternalURLRead(BaseModel):
     url_type: ExternalURLType
     url_str: str
     source: ExternalURLSource
+    parse_status: ExternalURLParseStatus
+    parse_message: Optional[str] = None
+    parsed_at: Optional[datetime] = None
 
 
 class RoleRead(BaseModel):
@@ -97,7 +114,7 @@ def _build_profile_read(profile: Profile) -> ProfileRead:
     roles = [
         role_entry
         for role_entry in profile.profile_roles
-        if not role_entry.is_hidden and role_entry.skill_level != SkillLevel.BEGINNER
+        if not role_entry.is_hidden and role_entry.skill_level in _VISIBLE_ROLE_LEVELS
     ]
     skill_tags = [
         tag_entry for tag_entry in profile.profile_skill_tags if not tag_entry.is_hidden
@@ -191,6 +208,17 @@ class ExternalURLCreate(BaseModel):
     is_hidden: bool = False
 
 
+class ExternalURLUpsert(BaseModel):
+    url_type: ExternalURLType
+    url_str: str
+    source: ExternalURLSource = ExternalURLSource.MANUAL
+    is_hidden: bool = False
+    access_token: Optional[str] = None
+    refresh_token: Optional[str] = None
+    scopes: Optional[str] = None
+    expires_at: Optional[datetime] = None
+
+
 class ExternalURLUpdate(BaseModel):
     url_type: Optional[ExternalURLType] = None
     url_str: Optional[str] = None
@@ -202,6 +230,19 @@ class SkillTagCreate(BaseModel):
     id: Optional[int] = None
     name: Optional[str] = None
     is_ai_generated: bool = False
+
+
+class ProfileTagsUpsert(BaseModel):
+    tags: List[str]
+
+
+class ProfileActionResponse(BaseModel):
+    message: str
+    profile: ProfileRead
+
+
+def _get_profile(current_user: User, db: Session) -> Profile | None:
+    return db.query(Profile).filter(Profile.user_id == current_user.id).first()
 
 
 def _get_full_profile(current_user: User, db: Session) -> Profile:
@@ -222,9 +263,8 @@ def _get_full_profile(current_user: User, db: Session) -> Profile:
     )
 
 
-def _require_profile(current_user: User, db: Session) -> Profile:
-    """Fetch the profile for the current user or raise 404."""
-    profile = db.query(Profile).filter(Profile.user_id == current_user.id).first()
+def _require_full_profile(current_user: User, db: Session) -> Profile:
+    profile = _get_full_profile(current_user, db)
     if not profile:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Profile not found"
@@ -232,18 +272,94 @@ def _require_profile(current_user: User, db: Session) -> Profile:
     return profile
 
 
+def _require_profile(current_user: User, db: Session) -> Profile:
+    """Fetch the profile for the current user or raise 404."""
+    profile = _get_profile(current_user, db)
+    if not profile:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Profile not found"
+        )
+    return profile
+
+
+def _external_url_type_to_oauth_provider(
+    url_type: ExternalURLType,
+) -> OAuthProvider | None:
+    """Map ExternalURLType to OAuthProvider when applicable."""
+    if url_type == ExternalURLType.GITHUB:
+        return OAuthProvider.GITHUB
+    if url_type == ExternalURLType.HUGGING_FACE:
+        return OAuthProvider.HUGGING_FACE
+    return None
+
+
+def _upsert_external_url(
+    db: Session,
+    profile: Profile,
+    payload: ExternalURLUpsert,
+) -> ExternalURL:
+    external_url = (
+        db.query(ExternalURL)
+        .filter(
+            ExternalURL.profile_id == profile.id,
+            ExternalURL.url_type == payload.url_type,
+        )
+        .first()
+    )
+    if external_url is None:
+        external_url = ExternalURL(profile_id=profile.id, url_type=payload.url_type)
+        db.add(external_url)
+
+    external_url.url_str = payload.url_str
+    external_url.source = payload.source
+    external_url.is_hidden = payload.is_hidden
+    reset_external_url_parse_status(external_url)
+
+    if payload.access_token:
+        provider = None
+        if payload.url_type == ExternalURLType.GITHUB:
+            provider = OAuthProvider.GITHUB
+        elif payload.url_type == ExternalURLType.HUGGING_FACE:
+            provider = OAuthProvider.HUGGING_FACE
+
+        if provider is not None:
+            token = (
+                db.query(OAuthToken)
+                .filter(
+                    OAuthToken.profile_id == profile.id,
+                    OAuthToken.provider == provider,
+                )
+                .first()
+            )
+            encrypted_access_token = encrypt_secret(payload.access_token)
+            encrypted_refresh_token = (
+                encrypt_secret(payload.refresh_token) if payload.refresh_token else None
+            )
+            if token is None:
+                db.add(
+                    OAuthToken(
+                        profile_id=profile.id,
+                        provider=provider,
+                        encrypted_access_token=encrypted_access_token,
+                        encrypted_refresh_token=encrypted_refresh_token,
+                        scopes=payload.scopes,
+                        expires_at=payload.expires_at,
+                    )
+                )
+            else:
+                token.encrypted_access_token = encrypted_access_token
+                token.encrypted_refresh_token = encrypted_refresh_token
+                token.scopes = payload.scopes
+                token.expires_at = payload.expires_at
+
+    return external_url
+
+
 @router.get("/me", response_model=ProfileRead)
 async def get_my_profile(
     current_user: User = Depends(get_current_user), db: Session = Depends(get_db)
 ):
-    profile = _get_full_profile(current_user, db)
-
-    if not profile:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Profile not found",
-        )
-
+    profile = _require_full_profile(current_user, db)
     return _build_profile_read(profile)
 
 
@@ -253,13 +369,7 @@ async def patch_my_profile(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    profile = _get_full_profile(current_user, db)
-
-    if not profile:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Profile not found",
-        )
+    profile = _require_full_profile(current_user, db)
 
     update_data = payload.model_dump(exclude_unset=True)
     for field_name, value in update_data.items():
@@ -297,7 +407,7 @@ async def create_education(
     db.add(education)
     db.commit()
 
-    profile = _get_full_profile(current_user, db)
+    profile = _require_full_profile(current_user, db)
     return _build_profile_read(profile)
 
 
@@ -327,7 +437,7 @@ async def update_education(
 
     db.commit()
 
-    profile = _get_full_profile(current_user, db)
+    profile = _require_full_profile(current_user, db)
     return _build_profile_read(profile)
 
 
@@ -381,7 +491,7 @@ async def create_project(
     db.add(project)
     db.commit()
 
-    profile = _get_full_profile(current_user, db)
+    profile = _require_full_profile(current_user, db)
     return _build_profile_read(profile)
 
 
@@ -413,7 +523,7 @@ async def update_project(
 
     db.commit()
 
-    profile = _get_full_profile(current_user, db)
+    profile = _require_full_profile(current_user, db)
     return _build_profile_read(profile)
 
 
@@ -447,9 +557,12 @@ async def delete_project(
 # ============================================================================
 
 
-@router.post("/links", response_model=ProfileRead, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/links", response_model=ProfileActionResponse, status_code=status.HTTP_201_CREATED
+)
 async def create_link(
     payload: ExternalURLCreate,
+    background_tasks: BackgroundTasks,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -463,16 +576,68 @@ async def create_link(
         is_hidden=payload.is_hidden,
     )
     db.add(url)
+    reset_external_url_parse_status(url)
     db.commit()
 
-    profile = _get_full_profile(current_user, db)
-    return _build_profile_read(profile)
+    background_tasks.add_task(refresh_profile_external_metrics, str(profile.id))
+
+    profile = _require_full_profile(current_user, db)
+    return ProfileActionResponse(
+        message="Parsing scheduled",
+        profile=_build_profile_read(profile),
+    )
 
 
-@router.patch("/links/{link_id}", response_model=ProfileRead)
+@router.put("/links", response_model=ProfileActionResponse)
+async def upsert_links(
+    payload: List[ExternalURLUpsert],
+    background_tasks: BackgroundTasks,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    profile = _require_profile(current_user, db)
+
+    for item in payload:
+        existing = (
+            db.query(ExternalURL)
+            .filter(
+                ExternalURL.profile_id == profile.id,
+                ExternalURL.url_type == item.url_type,
+            )
+            .first()
+        )
+
+        _upsert_external_url(db, profile, item)
+
+        # If an existing link was OAuth-linked but the new payload is not,
+        # remove the stored OAuth token to avoid stale credentials.
+        if (
+            existing
+            and existing.source == ExternalURLSource.OAUTH_LINKED
+            and item.source != ExternalURLSource.OAUTH_LINKED
+        ):
+            old_provider = _external_url_type_to_oauth_provider(existing.url_type)
+            if old_provider is not None:
+                db.query(OAuthToken).filter(
+                    OAuthToken.profile_id == profile.id,
+                    OAuthToken.provider == old_provider,
+                ).delete(synchronize_session=False)
+
+    db.commit()
+    background_tasks.add_task(refresh_profile_external_metrics, str(profile.id))
+
+    profile = _require_full_profile(current_user, db)
+    return ProfileActionResponse(
+        message="Parsing scheduled",
+        profile=_build_profile_read(profile),
+    )
+
+
+@router.patch("/links/{link_id}", response_model=ProfileActionResponse)
 async def update_link(
     link_id: int,
     payload: ExternalURLUpdate,
+    background_tasks: BackgroundTasks,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -489,6 +654,10 @@ async def update_link(
             detail="Link not found",
         )
 
+    # Capture original values to determine if we need to remove stored OAuth tokens
+    original_source = url.source
+    original_url_type = url.url_type
+
     update_data = payload.model_dump(exclude_unset=True)
     for field_name, value in update_data.items():
         if field_name == "url_type":
@@ -496,10 +665,30 @@ async def update_link(
         else:
             setattr(url, field_name, value)
 
+    reset_external_url_parse_status(url)
+
+    # If the link was previously OAuth-linked but is no longer OAuth-linked,
+    # or the url_type changed away from an OAuth provider, remove the old token.
+    if original_source == ExternalURLSource.OAUTH_LINKED and (
+        url.source != ExternalURLSource.OAUTH_LINKED
+        or original_url_type != url.url_type
+    ):
+        old_provider = _external_url_type_to_oauth_provider(original_url_type)
+        if old_provider is not None:
+            db.query(OAuthToken).filter(
+                OAuthToken.profile_id == profile.id,
+                OAuthToken.provider == old_provider,
+            ).delete(synchronize_session=False)
+
     db.commit()
 
-    profile = _get_full_profile(current_user, db)
-    return _build_profile_read(profile)
+    background_tasks.add_task(refresh_profile_external_metrics, str(profile.id))
+
+    profile = _require_full_profile(current_user, db)
+    return ProfileActionResponse(
+        message="Parsing scheduled",
+        profile=_build_profile_read(profile),
+    )
 
 
 @router.delete("/links/{link_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -508,12 +697,7 @@ async def delete_link(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    profile = db.query(Profile).filter(Profile.user_id == current_user.id).first()
-    if not profile:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Profile not found",
-        )
+    profile = _require_profile(current_user, db)
 
     url = (
         db.query(ExternalURL)
@@ -526,6 +710,15 @@ async def delete_link(
             detail="Link not found",
         )
 
+    # If the link was OAuth-linked, remove the corresponding stored token
+    if url.source == ExternalURLSource.OAUTH_LINKED:
+        provider = _external_url_type_to_oauth_provider(url.url_type)
+        if provider is not None:
+            db.query(OAuthToken).filter(
+                OAuthToken.profile_id == profile.id,
+                OAuthToken.provider == provider,
+            ).delete(synchronize_session=False)
+
     db.delete(url)
     db.commit()
 
@@ -533,6 +726,16 @@ async def delete_link(
 # ============================================================================
 # SKILL TAGS ENDPOINTS
 # ============================================================================
+
+
+@router.get("/tags", response_model=List[SkillTagRead])
+async def list_skill_tags(
+    db: Session = Depends(get_db),
+):
+    tags = db.query(SkillTag).all()
+    return [
+        SkillTagRead(id=tag.id, name=tag.name, is_ai_generated=False) for tag in tags
+    ]
 
 
 @router.post("/tags", response_model=ProfileRead, status_code=status.HTTP_201_CREATED)
@@ -546,12 +749,7 @@ async def add_skill_tag(
     If id is provided, reuse existing tag.
     Otherwise, create a new tag from name.
     """
-    profile = db.query(Profile).filter(Profile.user_id == current_user.id).first()
-    if not profile:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Profile not found",
-        )
+    profile = _require_profile(current_user, db)
 
     if payload.id is not None:
         # Reuse existing tag
@@ -597,7 +795,63 @@ async def add_skill_tag(
     db.add(profile_tag)
     db.commit()
 
-    profile = _get_full_profile(current_user, db)
+    profile = _require_full_profile(current_user, db)
+    return _build_profile_read(profile)
+
+
+@router.put("/tags", response_model=ProfileRead)
+async def upsert_skill_tags(
+    payload: ProfileTagsUpsert,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    profile = _require_profile(current_user, db)
+
+    normalized_tags = list(
+        dict.fromkeys(tag.strip() for tag in payload.tags if tag and tag.strip())
+    )
+
+    current_links = (
+        db.query(ProfileSkillTag)
+        .join(SkillTag)
+        .filter(ProfileSkillTag.profile_id == profile.id)
+        .all()
+    )
+
+    desired_tag_names = set(normalized_tags)
+    for link in current_links:
+        if link.skill_tag.name not in desired_tag_names:
+            db.delete(link)
+
+    for tag_name in normalized_tags:
+        tag = db.query(SkillTag).filter(SkillTag.name == tag_name).first()
+        if tag is None:
+            tag = SkillTag(name=tag_name)
+            db.add(tag)
+            db.flush()
+
+        existing_link = (
+            db.query(ProfileSkillTag)
+            .filter(
+                ProfileSkillTag.profile_id == profile.id,
+                ProfileSkillTag.tag_id == tag.id,
+            )
+            .first()
+        )
+        if existing_link is None:
+            db.add(
+                ProfileSkillTag(
+                    profile_id=profile.id,
+                    tag_id=tag.id,
+                    is_ai_generated=False,
+                )
+            )
+        else:
+            existing_link.is_ai_generated = False
+
+    db.commit()
+
+    profile = _require_full_profile(current_user, db)
     return _build_profile_read(profile)
 
 
@@ -607,12 +861,7 @@ async def remove_skill_tag(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    profile = db.query(Profile).filter(Profile.user_id == current_user.id).first()
-    if not profile:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Profile not found",
-        )
+    profile = _require_profile(current_user, db)
 
     profile_tag = (
         db.query(ProfileSkillTag)

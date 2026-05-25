@@ -19,7 +19,7 @@ export type UserRole = 'developer' | 'team-leader';
 
 export interface User {
 	id: string;
-	name: string;
+	full_name: string;
 	email: string;
 	role?: UserRole;
 }
@@ -29,10 +29,18 @@ export interface LoginCredentials {
 	password: string;
 }
 
+export interface RegisterCredentials {
+	full_name: string;
+	email: string;
+	password: string;
+	role: UserRole;
+}
+
 interface AuthContextType {
 	user: User | null;
 	isLoading: boolean;
 	login: (credentials: LoginCredentials) => Promise<AuthTokens>;
+	register: (credentials: RegisterCredentials) => Promise<unknown>;
 	logout: () => void;
 	isAuthenticated: boolean;
 }
@@ -59,7 +67,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 				}>();
 				setUser({
 					id: currentUser.id.toString(),
-					name: currentUser.full_name,
+					full_name: currentUser.full_name,
 					email: currentUser.email,
 				});
 			} catch (error) {
@@ -108,7 +116,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 			}>();
 			setUser({
 				id: currentUser.id.toString(),
-				name: currentUser.full_name,
+				full_name: currentUser.full_name,
 				email: currentUser.email,
 			});
 		} catch (error) {
@@ -116,6 +124,33 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 		}
 
 		return authData;
+	};
+
+	const register = async (credentials: RegisterCredentials) => {
+		const response = await fetch(
+			process.env.NEXT_PUBLIC_BACKEND_URL
+				? `${process.env.NEXT_PUBLIC_BACKEND_URL}/api/v1/auth/register`
+				: 'http://localhost:8000/api/v1/auth/register',
+			{
+				method: 'POST',
+				headers: {
+					'Content-Type': 'application/json',
+				},
+				body: JSON.stringify(credentials),
+			},
+		);
+
+		if (!response.ok) {
+			const errorText = await response.text();
+			console.error(
+				'Registration failed with status:',
+				response.status,
+				errorText,
+			);
+			throw new Error('Registration failed');
+		}
+
+		return response.json();
 	};
 
 	const logout = () => {
@@ -130,6 +165,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 				isLoading,
 				login,
 				logout,
+				register,
 				isAuthenticated: !!user,
 			}}
 		>

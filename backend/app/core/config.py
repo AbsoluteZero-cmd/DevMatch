@@ -16,6 +16,13 @@ class Settings(BaseSettings):
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
     REFRESH_TOKEN_EXPIRE_DAYS: int = 30
+    OAUTH_TOKEN_ENCRYPTION_KEY: Optional[str] = None
+    GITHUB_CLIENT_ID: Optional[str] = None
+    GITHUB_CLIENT_SECRET: Optional[str] = None
+    HUGGINGFACE_CLIENT_ID: Optional[str] = None
+    HUGGINGFACE_CLIENT_SECRET: Optional[str] = None
+    OAUTH_CALLBACK_BASE_URL: str = "http://localhost:8000"
+    FRONTEND_BASE_URL: str = "http://localhost:3001"
 
     BACKEND_CORS_ORIGINS: list[str] = [
         "http://localhost:3001",

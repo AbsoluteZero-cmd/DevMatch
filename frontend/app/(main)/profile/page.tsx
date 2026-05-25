@@ -1,126 +1,726 @@
-'use client';
+"use client";
 
-import { ProfileHero } from '@/components/profile-hero';
-import { SkillsSection } from '@/components/skills-section';
-import { ProjectsSection } from '@/components/projects-section';
-import { GitHubLink } from '@/components/github-link';
-import { useEffect } from 'react';
-import { useAuth } from '@/contexts/auth-context';
+import { GitHubConnectSection } from "@/components/github-connect-section";
+import { EducationSection } from "@/components/education-section";
+import { HuggingFaceConnectSection } from "@/components/hugging-face-connect-section";
+import { ProfileHero } from "@/components/profile-hero";
+import { ProjectsSection } from "@/components/projects-section";
+import { RolesSection } from "@/components/roles-section";
+import { SkillsSection } from "@/components/skills-section";
+import { useAuth } from "@/contexts/auth-context";
+import {
+  createEducation,
+  createLink,
+  createProject,
+  deleteEducation,
+  deleteLink,
+  deleteProject,
+  getMyProfile,
+  getOAuthAuthorizationUrl,
+  patchMyProfile,
+  updateEducation,
+  updateLink,
+  updateProject,
+  upsertSkillTags,
+} from "@/lib/api";
+import type {
+  ExternalURLRead,
+  ProfileProjectCard,
+  ProfileRead,
+  ProfileSummaryStat,
+} from "@/lib/profile-types";
+import { splitTechnologiesUsed } from "@/lib/profile-types";
+import { useEffect, useState } from "react";
 
-// Sample data for Sabrina's profile
-const profileData = {
-	name: 'Sabrina',
-	university: 'KAIST',
-	location: 'Daejeon, South Korea',
-	bio: "Passionate computer science student focused on building impactful software. I love exploring the intersection of AI and web development, creating tools that make developers' lives easier. Currently working on projects involving machine learning and full-stack development.",
-	avatarUrl:
-		'https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=400&h=400&fit=crop&crop=face',
-};
+interface ProfileActionResponse {
+  message: string;
+  profile: ProfileRead;
+}
 
-const skills = [
-	{ name: 'Rhino', level: 'Expert' as const },
-	{ name: 'TypeScript', level: 'Advanced' as const },
-	{ name: 'Python', level: 'Advanced' as const },
-	{ name: 'Node.js', level: 'Intermediate' as const },
-	{ name: 'Next.js', level: 'Advanced' as const },
-	{ name: 'TailwindCSS', level: 'Expert' as const },
-	{ name: 'PostgreSQL', level: 'Intermediate' as const },
-	{ name: 'Machine Learning', level: 'Intermediate' as const },
-	{ name: 'Docker', level: 'Beginner' as const },
-	{ name: 'Git', level: 'Advanced' as const },
-];
+function buildProfileSummary(profile: ProfileRead | null, email?: string) {
+  if (!profile) {
+    return email
+      ? `Logged in as ${email}. Loading the rest of your profile.`
+      : "Loading your profile.";
+  }
 
-const projects = [
-	{
-		name: 'AI Study Buddy',
-		description:
-			'An AI-powered study assistant that helps students understand complex topics using GPT-4 and retrieval-augmented generation.',
-		technologies: ['Python', 'FastAPI', 'React', 'OpenAI'],
-		githubUrl: 'https://github.com/sabrina/ai-study-buddy',
-		liveUrl: 'https://ai-study-buddy.vercel.app',
-	},
-	{
-		name: 'Coupang Buddies',
-		description: 'A platform for KAIST students to find coupang eats buddies',
-		technologies: ['Next.js', 'TypeScript', 'TailwindCSS'],
-		githubUrl: 'https://github.com/sabrina/campus-connect',
-	},
-	{
-		name: 'Code Review Bot',
-		description:
-			'GitHub Action that automatically reviews PRs using AI, providing suggestions for code improvements and potential bugs.',
-		technologies: ['TypeScript', 'GitHub Actions', 'OpenAI'],
-		githubUrl: 'https://github.com/sabrina/code-review-bot',
-	},
-	{
-		name: 'ML Pipeline Visualizer',
-		description:
-			'Interactive tool for visualizing and debugging machine learning pipelines, making it easier to understand data flow.',
-		technologies: ['React', 'D3.js', 'Python', 'Flask'],
-		githubUrl: 'https://github.com/SabrinaExample/ml-pipeline-viz',
-		liveUrl: 'https://ml-pipeline-viz.vercel.app',
-	},
-];
+  const pieces: string[] = [];
+  if (profile.years_experience !== null) {
+    pieces.push(`${profile.years_experience} years of experience`);
+  }
+  if (profile.age !== null) {
+    pieces.push(`${profile.age} years old`);
+  }
+  if (profile.roles.length > 0) {
+    pieces.push(`${profile.roles.length} roles`);
+  }
+  if (profile.skill_tags.length > 0) {
+    pieces.push(`${profile.skill_tags.length} skill tags`);
+  }
+
+  if (pieces.length === 0) {
+    return email
+      ? `Profile loaded for ${email}, but no public summary fields are set yet.`
+      : "Profile data loaded.";
+  }
+
+  return pieces.join(" · ");
+}
+
+function buildSummaryStats(profile: ProfileRead): ProfileSummaryStat[] {
+  return [
+    {
+      label: "Experience",
+      value:
+        profile.years_experience !== null
+          ? `${profile.years_experience} years`
+          : "Not set",
+    },
+    {
+      label: "Age",
+      value: profile.age !== null ? `${profile.age}` : "Not set",
+    },
+    {
+      label: "Roles",
+      value: `${profile.roles.length}`,
+    },
+    {
+      label: "Skills",
+      value: `${profile.skill_tags.length}`,
+    },
+  ];
+}
+
+function buildProjectCards(profile: ProfileRead): ProfileProjectCard[] {
+  return profile.project_history_entries.map((project) => ({
+    id: project.id,
+    name: project.project_name,
+    duration: project.duration,
+    role: project.role,
+    description:
+      project.description ??
+      ([project.role, project.duration].filter(Boolean).join(" · ") ||
+        "No project description provided."),
+    technologies: splitTechnologiesUsed(project.technologies_used),
+  }));
+}
+
+function getPrimaryGitHubLink(profile: ProfileRead): ExternalURLRead | null {
+  return (
+    profile.external_urls.find(
+      (externalUrl) => externalUrl.url_type === "GITHUB",
+    ) ?? null
+  );
+}
 
 export default function ProfilePage() {
-	const auth = useAuth();
-	const user = auth.user;
+  const auth = useAuth();
+  const user = auth.user;
+  const [profile, setProfile] = useState<ProfileRead | null>(null);
+  const [editMode, setEditMode] = useState(false);
+  const [profileError, setProfileError] = useState<string | null>(null);
+  const [profileLoading, setProfileLoading] = useState(false);
+  const [externalNew, setExternalNew] = useState({
+    url_type: "OTHER",
+    url_str: "",
+  });
+  const [topEdit, setTopEdit] = useState({
+    full_name: "",
+    age: "",
+    years_experience: "",
+  });
 
-	const displayName = user?.name ?? profileData.name;
-	const displayBio = user?.email
-		? `Logged in as ${user.email}. Update your profile and see your recent activity.`
-		: profileData.bio;
+  useEffect(() => {
+    if (profile) {
+      setTopEdit({
+        full_name: profile.full_name ?? "",
+        age: profile.age !== null ? String(profile.age) : "",
+        years_experience:
+          profile.years_experience !== null
+            ? String(profile.years_experience)
+            : "",
+      });
+    }
+  }, [profile]);
 
-	return (
-		<main className='mx-auto max-w-4xl px-4 py-8 sm:px-6 lg:px-8'>
-			<div className='space-y-8'>
-				{/* Hero Section */}
-				<ProfileHero
-					name={displayName}
-					university={profileData.university}
-					location={profileData.location}
-					bio={displayBio}
-					avatarUrl={profileData.avatarUrl}
-				/>
+  useEffect(() => {
+    if (auth.isLoading || !user) {
+      return;
+    }
 
-				{user && (
-					<div className='rounded-xl border border-border bg-card p-6'>
-						<div className='flex items-center justify-between gap-4'>
-							<div>
-								<p className='text-sm font-semibold text-muted-foreground'>
-									Account
-								</p>
-								<h2 className='mt-2 text-2xl font-semibold text-foreground'>
-									Logged in user
-								</h2>
-							</div>
-						</div>
-						<div className='mt-6 grid gap-4 sm:grid-cols-2'>
-							<div className='rounded-lg border border-border bg-background/50 p-4'>
-								<p className='text-sm text-muted-foreground'>Name</p>
-								<p className='mt-1 text-base font-medium text-foreground'>
-									{user.name}
-								</p>
-							</div>
-							<div className='rounded-lg border border-border bg-background/50 p-4'>
-								<p className='text-sm text-muted-foreground'>Email</p>
-								<p className='mt-1 text-base font-medium text-foreground'>
-									{user.email}
-								</p>
-							</div>
-						</div>
-					</div>
-				)}
+    let isActive = true;
 
-				{/* Skills Section */}
-				<SkillsSection skills={skills} />
+    const loadProfile = async () => {
+      setProfileLoading(true);
+      setProfileError(null);
 
-				{/* Projects Section */}
-				<ProjectsSection projects={projects} />
+      try {
+        const profileData = await getMyProfile<ProfileRead>();
+        if (isActive) {
+          setProfile(profileData);
+        }
+      } catch (error) {
+        if (isActive) {
+          setProfile(null);
+          setProfileError(
+            error instanceof Error
+              ? error.message
+              : "Failed to load profile data.",
+          );
+        }
+      } finally {
+        if (isActive) {
+          setProfileLoading(false);
+        }
+      }
+    };
 
-				{/* GitHub Link */}
-				<GitHubLink username='SabrinaExample-dev' />
-			</div>
-		</main>
-	);
+    loadProfile();
+
+    return () => {
+      isActive = false;
+    };
+  }, [auth.isLoading, user]);
+
+  const displayName = profile?.full_name ?? user?.full_name ?? "Your profile";
+  const displaySummary = "";
+  const summaryStats = profile ? buildSummaryStats(profile) : [];
+  const educationEntries = profile?.education_entries ?? [];
+  const skills = profile?.skill_tags ?? [];
+  const projects = profile ? buildProjectCards(profile) : [];
+  const githubLink = profile ? getPrimaryGitHubLink(profile) : null;
+  const huggingFaceLink = profile
+    ? (profile.external_urls.find(
+        (externalUrl) => externalUrl.url_type === "HUGGING_FACE",
+      ) ?? null)
+    : null;
+  const otherExternalUrls = profile
+    ? profile.external_urls.filter(
+        (externalUrl) =>
+          externalUrl.url_type !== "GITHUB" &&
+          externalUrl.url_type !== "HUGGING_FACE",
+      )
+    : [];
+
+  if (auth.isLoading) {
+    return (
+      <div className="flex h-screen items-center justify-center">
+        <div className="h-16 w-16 animate-spin rounded-full border-t-4 border-blue-500"></div>
+      </div>
+    );
+  }
+
+  if (!user) {
+    return (
+      <div className="flex h-screen flex-col items-center justify-center gap-4">
+        <p className="text-lg text-muted-foreground">You are not logged in.</p>
+        <a href="/login" className="text-blue-500 hover:underline">
+          Go to Login
+        </a>
+      </div>
+    );
+  }
+
+  if (profileLoading) {
+    return (
+      <div className="flex h-screen items-center justify-center">
+        <div className="h-16 w-16 animate-spin rounded-full border-t-4 border-blue-500"></div>
+      </div>
+    );
+  }
+
+  if (profileError) {
+    return (
+      <div className="mx-auto flex min-h-screen max-w-2xl items-center px-4 py-8">
+        <div className="w-full rounded-xl border border-border bg-card p-6">
+          <p className="text-sm font-semibold text-muted-foreground">Profile</p>
+          <h1 className="mt-2 text-2xl font-semibold text-foreground">
+            Unable to load your profile
+          </h1>
+          <p className="mt-3 text-sm text-muted-foreground">{profileError}</p>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <main className="mx-auto max-w-4xl px-4 py-8 sm:px-6 lg:px-8">
+      <div className="space-y-8">
+        <div className="flex items-center justify-end">
+          <button
+            className="rounded-md border px-3 py-1 text-sm"
+            onClick={() => setEditMode((value) => !value)}
+          >
+            {editMode ? "Exit edit" : "Edit profile"}
+          </button>
+        </div>
+
+        <ProfileHero
+          name={displayName}
+          summary={displaySummary}
+          avatarUrl={undefined}
+          stats={summaryStats}
+        />
+
+        <div className="rounded-xl border border-border bg-card p-6">
+          <div className="flex items-center justify-between gap-4">
+            <div>
+              <p className="text-sm font-semibold text-muted-foreground">
+                Account
+              </p>
+              <h2 className="mt-2 text-2xl font-semibold text-foreground">
+                Logged in user
+              </h2>
+            </div>
+            {editMode && (
+              <div className="flex gap-2">
+                <button
+                  className="rounded bg-green-500 px-3 py-1 text-white"
+                  onClick={async () => {
+                    try {
+                      const payload: any = {};
+                      if (topEdit.full_name !== "") {
+                        payload.full_name = topEdit.full_name;
+                      }
+                      if (topEdit.age !== "") {
+                        payload.age = Number(topEdit.age);
+                      }
+                      if (topEdit.years_experience !== "") {
+                        payload.years_experience = Number(
+                          topEdit.years_experience,
+                        );
+                      }
+                      const updated =
+                        await patchMyProfile<ProfileRead>(payload);
+                      setProfile(updated);
+                    } catch (error) {
+                      console.error(error);
+                      alert("Failed to save profile");
+                    }
+                  }}
+                >
+                  Save
+                </button>
+                <button
+                  className="rounded border px-3 py-1 text-sm"
+                  onClick={() => {
+                    if (profile) {
+                      setTopEdit({
+                        full_name: profile.full_name ?? "",
+                        age: profile.age !== null ? String(profile.age) : "",
+                        years_experience:
+                          profile.years_experience !== null
+                            ? String(profile.years_experience)
+                            : "",
+                      });
+                    }
+                  }}
+                >
+                  Cancel
+                </button>
+              </div>
+            )}
+          </div>
+
+          <div className="mt-6 grid gap-4 sm:grid-cols-2">
+            <div className="rounded-lg border border-border bg-background/50 p-4">
+              <p className="text-sm text-muted-foreground">Name</p>
+              {!editMode && (
+                <p className="mt-1 text-base font-medium text-foreground">
+                  {profile?.full_name ?? user.full_name}
+                </p>
+              )}
+              {editMode && (
+                <input
+                  className="mt-1 w-full rounded border px-2 py-1"
+                  value={topEdit.full_name}
+                  onChange={(event) =>
+                    setTopEdit((state) => ({
+                      ...state,
+                      full_name: event.target.value,
+                    }))
+                  }
+                />
+              )}
+            </div>
+
+            <div className="rounded-lg border border-border bg-background/50 p-4">
+              <p className="text-sm text-muted-foreground">Email</p>
+              <p className="mt-1 text-base font-medium text-foreground">
+                {user.email}
+              </p>
+            </div>
+
+            <div className="rounded-lg border border-border bg-background/50 p-4">
+              <p className="text-sm text-muted-foreground">Age</p>
+              {!editMode && (
+                <p className="mt-1 text-base font-medium text-foreground">
+                  {profile && profile.age !== null ? profile.age : "Not set"}
+                </p>
+              )}
+              {editMode && (
+                <input
+                  className="mt-1 w-full rounded border px-2 py-1"
+                  inputMode="numeric"
+                  value={topEdit.age}
+                  onChange={(event) =>
+                    setTopEdit((state) => ({
+                      ...state,
+                      age: event.target.value,
+                    }))
+                  }
+                />
+              )}
+            </div>
+
+            <div className="rounded-lg border border-border bg-background/50 p-4">
+              <p className="text-sm text-muted-foreground">
+                Years of experience
+              </p>
+              {!editMode && (
+                <p className="mt-1 text-base font-medium text-foreground">
+                  {profile && profile.years_experience !== null
+                    ? profile.years_experience
+                    : "Not set"}
+                </p>
+              )}
+              {editMode && (
+                <input
+                  className="mt-1 w-full rounded border px-2 py-1"
+                  inputMode="numeric"
+                  value={topEdit.years_experience}
+                  onChange={(event) =>
+                    setTopEdit((state) => ({
+                      ...state,
+                      years_experience: event.target.value,
+                    }))
+                  }
+                />
+              )}
+            </div>
+          </div>
+        </div>
+
+        <div>
+          <EducationSection
+            educationEntries={educationEntries}
+            editMode={editMode}
+            onCreate={async (payload) => {
+              try {
+                const updated = await createEducation<ProfileRead>(payload);
+                setProfile(updated);
+              } catch (error) {
+                console.error(error);
+                alert("Failed to create education entry");
+              }
+            }}
+            onUpdate={async (educationId, payload) => {
+              try {
+                const updated = await updateEducation<ProfileRead>(
+                  educationId,
+                  payload,
+                );
+                setProfile(updated);
+              } catch (error) {
+                console.error(error);
+                alert("Failed to update education entry");
+              }
+            }}
+            onDelete={async (educationId) => {
+              try {
+                await deleteEducation(educationId);
+                const updated = await getMyProfile<ProfileRead>();
+                setProfile(updated);
+              } catch (error) {
+                console.error(error);
+                alert("Failed to delete education entry");
+              }
+            }}
+          />
+        </div>
+
+        <div>
+          <SkillsSection
+            skills={skills}
+            editMode={editMode}
+            onSave={async (tags: string[]) => {
+              try {
+                const updated = await upsertSkillTags<ProfileRead>({ tags });
+                setProfile(updated);
+              } catch (error) {
+                console.error(error);
+                alert("Failed to save skills");
+              }
+            }}
+          />
+        </div>
+
+        <RolesSection roles={profile?.roles ?? []} />
+
+        <ProjectsSection
+          projects={projects}
+          title="Project history"
+          emptyMessage="No project history has been added yet."
+          editMode={editMode}
+          onCreate={async (payload) => {
+            try {
+              const updated = await createProject<ProfileRead>(payload);
+              setProfile(updated);
+            } catch (error) {
+              console.error(error);
+              alert("Failed to create project");
+            }
+          }}
+          onUpdate={async (projectId, payload) => {
+            try {
+              const updated = await updateProject<ProfileRead>(
+                projectId,
+                payload,
+              );
+              setProfile(updated);
+            } catch (error) {
+              console.error(error);
+              alert("Failed to update project");
+            }
+          }}
+          onDelete={async (projectId) => {
+            try {
+              await deleteProject(projectId);
+              const updated = await getMyProfile<ProfileRead>();
+              setProfile(updated);
+            } catch (error) {
+              console.error(error);
+              alert("Failed to delete project");
+            }
+          }}
+        />
+
+        {profile && (
+          <div className="rounded-xl border border-border bg-card p-6">
+            <p className="text-sm font-semibold text-muted-foreground">
+              External links
+            </p>
+            <div className="mt-4 space-y-4">
+              <GitHubConnectSection
+                link={githubLink}
+                editMode={editMode}
+                onConnectOAuth={async () => {
+                  try {
+                    const response = await getOAuthAuthorizationUrl<{
+                      provider: string;
+                      authorization_url: string;
+                      state: string;
+                    }>("github");
+                    window.location.href = response.authorization_url;
+                  } catch (error) {
+                    console.error(error);
+                    alert("Failed to start GitHub OAuth");
+                  }
+                }}
+                onSaveManual={async (url: string) => {
+                  try {
+                    const updated = githubLink
+                      ? await updateLink<ProfileActionResponse>(githubLink.id, {
+                          url_type: "GITHUB",
+                          url_str: url,
+                          source: "MANUAL",
+                        })
+                      : await createLink<ProfileActionResponse>({
+                          url_type: "GITHUB",
+                          url_str: url,
+                          source: "MANUAL",
+                        });
+
+                    setProfile(updated.profile);
+                  } catch (error) {
+                    console.error(error);
+                    alert("Failed to save GitHub URL");
+                  }
+                }}
+                onDisconnect={async () => {
+                  try {
+                    if (!githubLink) {
+                      return;
+                    }
+
+                    await deleteLink(githubLink.id);
+                    const updated = await getMyProfile<ProfileRead>();
+                    setProfile(updated);
+                  } catch (error) {
+                    console.error(error);
+                    alert("Failed to disconnect GitHub");
+                  }
+                }}
+              />
+
+              <HuggingFaceConnectSection
+                link={huggingFaceLink}
+                editMode={editMode}
+                onConnectOAuth={async () => {
+                  try {
+                    const response = await getOAuthAuthorizationUrl<{
+                      provider: string;
+                      authorization_url: string;
+                      state: string;
+                    }>("huggingface");
+                    window.location.href = response.authorization_url;
+                  } catch (error) {
+                    console.error(error);
+                    alert("Failed to start Hugging Face OAuth");
+                  }
+                }}
+                onSaveManual={async (url: string) => {
+                  try {
+                    const updated = huggingFaceLink
+                      ? await updateLink<ProfileActionResponse>(
+                          huggingFaceLink.id,
+                          {
+                            url_type: "HUGGING_FACE",
+                            url_str: url,
+                            source: "MANUAL",
+                          },
+                        )
+                      : await createLink<ProfileActionResponse>({
+                          url_type: "HUGGING_FACE",
+                          url_str: url,
+                          source: "MANUAL",
+                        });
+
+                    setProfile(updated.profile);
+                  } catch (error) {
+                    console.error(error);
+                    alert("Failed to save Hugging Face URL");
+                  }
+                }}
+                onDisconnect={async () => {
+                  try {
+                    if (!huggingFaceLink) {
+                      return;
+                    }
+
+                    await deleteLink(huggingFaceLink.id);
+                    const updated = await getMyProfile<ProfileRead>();
+                    setProfile(updated);
+                  } catch (error) {
+                    console.error(error);
+                    alert("Failed to disconnect Hugging Face");
+                  }
+                }}
+              />
+
+              {otherExternalUrls.length > 0 && (
+                <div className="space-y-2">
+                  {otherExternalUrls.map((externalUrl) => (
+                    <div
+                      key={externalUrl.id}
+                      className="flex items-center justify-between rounded-lg border border-border bg-background/50 p-4 text-sm text-foreground"
+                    >
+                      <a
+                        href={externalUrl.url_str}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="text-sm text-foreground"
+                      >
+                        {externalUrl.url_type}: {externalUrl.url_str}
+                      </a>
+                      {editMode && (
+                        <div className="flex gap-2">
+                          <button
+                            className="rounded border px-2 py-1 text-xs"
+                            onClick={async () => {
+                              try {
+                                const updated =
+                                  await updateLink<ProfileActionResponse>(
+                                    externalUrl.id,
+                                    {
+                                      url_str: externalUrl.url_str,
+                                      url_type: externalUrl.url_type,
+                                    },
+                                  );
+                                setProfile(updated.profile);
+                              } catch (error) {
+                                console.error(error);
+                                alert("Failed to update link");
+                              }
+                            }}
+                          >
+                            Edit
+                          </button>
+                          <button
+                            className="rounded border px-2 py-1 text-xs text-red-600"
+                            onClick={async () => {
+                              try {
+                                await deleteLink(externalUrl.id);
+                                const updated =
+                                  await getMyProfile<ProfileRead>();
+                                setProfile(updated);
+                              } catch (error) {
+                                console.error(error);
+                                alert("Failed to delete link");
+                              }
+                            }}
+                          >
+                            Delete
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {editMode && (
+                <div className="mt-2 flex gap-2">
+                  <select
+                    value={externalNew.url_type}
+                    onChange={(event) =>
+                      setExternalNew((state) => ({
+                        ...state,
+                        url_type: event.target.value,
+                      }))
+                    }
+                    className="rounded border px-2 py-1"
+                  >
+                    <option value="LINKEDIN">LINKEDIN</option>
+                    <option value="OTHER">OTHER</option>
+                  </select>
+                  <input
+                    className="flex-1 rounded border px-2 py-1"
+                    placeholder="https://..."
+                    value={externalNew.url_str}
+                    onChange={(event) =>
+                      setExternalNew((state) => ({
+                        ...state,
+                        url_str: event.target.value,
+                      }))
+                    }
+                  />
+                  <button
+                    className="rounded bg-primary/90 px-3 py-1 text-white"
+                    onClick={async () => {
+                      try {
+                        const updated = await createLink<ProfileActionResponse>(
+                          {
+                            url_type: externalNew.url_type,
+                            url_str: externalNew.url_str,
+                          },
+                        );
+                        setProfile(updated.profile);
+                        setExternalNew({ url_type: "OTHER", url_str: "" });
+                      } catch (error) {
+                        console.error(error);
+                        alert("Failed to add link");
+                      }
+                    }}
+                  >
+                    Add
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+      </div>
+    </main>
+  );
 }
