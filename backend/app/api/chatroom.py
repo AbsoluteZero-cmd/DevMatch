@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from typing import List, Optional
 from sqlalchemy.orm import Session
+from sqlalchemy import or_
 
 from app.core.dependencies import get_db, get_current_user
 from app.models.user import User
@@ -167,6 +168,19 @@ async def send_message(
     room = db.query(ChatRoom).filter(ChatRoom.id == room_id).first()
     if not room:
         raise HTTPException(status_code=404, detail="Room not found")
+    
+    participant = (
+        db.query(ChatParticipant)
+        .filter(
+            ChatParticipant.room_id == room_id,
+            ChatParticipant.user_id == current_user.id,
+            ChatParticipant.status == "accepted",
+        )
+        .first()
+    )
+
+    if not participant and room.created_by_id != current_user.id:
+        raise HTTPException(status_code=403, detail="You are not a participant of this room. Please accept the invitation first.")
 
     db_message = Message(
         room_id=room_id,
@@ -200,18 +214,35 @@ async def get_inbox(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    # get all chat invites for current user
-    participants = (
-        db.query(ChatParticipant)
-        .filter(ChatParticipant.user_id == current_user.id)
+
+    rooms = (
+        db.query(ChatRoom)
+        .outerjoin(ChatParticipant, ChatParticipant.room_id == ChatRoom.id)
+        .filter(
+            ChatRoom.is_active == True,
+            or_(
+                ChatParticipant.user_id == current_user.id,
+                ChatRoom.created_by_id == current_user.id,
+            ),
+        )
+        .distinct()
         .all()
     )
 
     items = []
-    for p in participants:
-        room = db.query(ChatRoom).filter(ChatRoom.id == p.room_id).first()
-        if not room:
-            continue
+    for room in rooms:
+        participant = (
+            db.query(ChatParticipant)
+            .filter(
+                ChatParticipant.room_id == room.id,
+                ChatParticipant.user_id == current_user.id,
+            )
+            .first()
+        )
+
+        status = participant.status if participant else "accepted"
+        role = participant.role if participant else None
+        invited_at = participant.invited_at if participant else room.created_at
 
         creator = db.query(User).filter(User.id == room.created_by_id).first()
 
@@ -223,13 +254,13 @@ async def get_inbox(
         )
 
         items.append(InboxItemResponse(
-            id=p.id,
+            id=participant.id if participant else room.id,
             room_id=room.id,
             room_name=room.name,
             room_description=room.description,
-            status=p.status,
-            role=p.role,
-            invited_at=p.invited_at,
+            status=status,
+            role=role,
+            invited_at=invited_at,
             created_by_id=room.created_by_id,
             created_by_name=creator.full_name if creator else "Unknown",
             last_message=last_msg.content if last_msg else None,
@@ -254,6 +285,12 @@ async def invite_to_chat(
         db.add(room)
         db.flush()
         invite.chat_id = room.id
+
+        db.add(ChatParticipant(
+            room_id=room.id,
+            user_id=current_user.id,
+            status="accepted",
+        ))
     else:
         room = db.query(ChatRoom).filter(ChatRoom.id == invite.chat_id).first()
         if not room:

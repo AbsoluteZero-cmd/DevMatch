@@ -286,30 +286,30 @@ export async function logoutApi(): Promise<void> {
 }
 
 
-// APIs for chatroom functionality
+export async function getInbox<T = unknown>(): Promise<T> {
+	return fetchProtectedApi<T>('/chatrooms/inbox');
+}
 
-export async function getChatInvites<T = unknown>(): Promise<T> {
-	return fetchProtectedApi<T>('/inbox', {
-		method: 'GET',
+export async function acceptChatInvite<T = unknown>(roomId: number): Promise<T> {
+	return fetchProtectedApi<T>(`/chatrooms/inbox/${roomId}/accept`, {
+		method: 'POST',
 	});
 }
 
-export async function inviteToChat<T = unknown>(payload: unknown): Promise<T> {
-	return fetchProtectedApi<T>(`/inbox/invite`, {
+export async function declineChatInvite<T = unknown>(roomId: number): Promise<T> {
+	return fetchProtectedApi<T>(`/chatrooms/inbox/${roomId}/decline`, {
+		method: 'POST',
+	});
+}
+
+export async function getRoomMessages<T = unknown>(roomId: number): Promise<T> {
+	return fetchProtectedApi<T>(`/chatrooms/rooms/${roomId}/messages`);
+}
+
+export async function sendRoomMessage<T = unknown>(roomId: number, content: string): Promise<T> {
+	return fetchProtectedApi<T>(`/chatrooms/rooms/${roomId}/messages`, {
 		method: 'POST',
 		headers: { 'Content-Type': 'application/json' },
-		body: JSON.stringify(payload),
-	});
-}
-
-export async function acceptChatInvite<T = unknown>(chatId: number): Promise<T> {
-	return fetchProtectedApi<T>(`/inbox/${chatId}/accept`, {
-		method: 'POST',
-	});
-}
-
-export async function declineChatInvite<T = unknown>(chatId: number): Promise<T> {
-	return fetchProtectedApi<T>(`/inbox/${chatId}/decline`, {
-		method: 'POST',
+		body: JSON.stringify({ content }),
 	});
 }
