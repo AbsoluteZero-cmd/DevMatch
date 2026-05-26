@@ -1,3 +1,5 @@
+from datetime import datetime
+
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from typing import List, Optional
@@ -26,6 +28,7 @@ class ChatRoomResponse(BaseModel):
     created_by_id: int
     max_participants: int
     is_active: bool
+    status: Optional[str] = None
 
     class Config:
         from_attributes = True
@@ -42,14 +45,14 @@ class MessageResponse(BaseModel):
     user_id: int
     content: str
     message_type: str
-    created_at: str
+    created_at: datetime
 
     class Config:
         from_attributes = True
 
 
 class InviteRequest(BaseModel):
-    chat_id: int
+    chat_id: Optional[int] = None
     user_id: int
     role: Optional[str] = None
 
@@ -60,7 +63,7 @@ class ParticipantResponse(BaseModel):
     user_id: int
     status: str
     role: Optional[str]
-    invited_at: str
+    invited_at: datetime
 
     class Config:
         from_attributes = True
@@ -73,7 +76,7 @@ class InboxItemResponse(BaseModel):
     room_description: str
     status: str
     role: Optional[str]
-    invited_at: str
+    invited_at: datetime
     created_by_id: int
     created_by_name: str
     last_message: Optional[str]
@@ -110,7 +113,7 @@ async def create_room(
 
 
 @router.get("/rooms/", response_model=List[ChatRoomResponse])
-async def get_rooms(skip: int = 0, limit: int = 100, db: Session = Depends(get_db)):
+async def get_rooms(skip: int = 0, limit: int = 100, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     rooms = (
         db.query(ChatRoom)
         .filter(ChatRoom.is_active == True)
@@ -118,6 +121,23 @@ async def get_rooms(skip: int = 0, limit: int = 100, db: Session = Depends(get_d
         .limit(limit)
         .all()
     )
+
+    # if status is pending, show the room but mark it as pending
+    for room in rooms:
+        # check if current user is a participant and get their status
+        participant = (
+            db.query(ChatParticipant)
+            .filter(
+                ChatParticipant.room_id == room.id,
+                ChatParticipant.user_id == current_user.id,
+            )
+            .first()
+        )
+
+        if participant:
+            room.status = participant.status
+        else:
+            room.status = "not_invited"
     return rooms
 
 
@@ -180,6 +200,7 @@ async def get_inbox(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
+    # get all chat invites for current user
     participants = (
         db.query(ChatParticipant)
         .filter(ChatParticipant.user_id == current_user.id)
@@ -208,7 +229,7 @@ async def get_inbox(
             room_description=room.description,
             status=p.status,
             role=p.role,
-            invited_at=str(p.invited_at),
+            invited_at=p.invited_at,
             created_by_id=room.created_by_id,
             created_by_name=creator.full_name if creator else "Unknown",
             last_message=last_msg.content if last_msg else None,
@@ -223,9 +244,20 @@ async def invite_to_chat(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    room = db.query(ChatRoom).filter(ChatRoom.id == invite.chat_id).first()
-    if not room:
-        raise HTTPException(status_code=404, detail="Chat room not found")
+    if not invite.chat_id:
+        room = ChatRoom(
+            name=f"{current_user.full_name}'s Chat",
+            description="A new chat room",
+            created_by_id=current_user.id,
+            max_participants=100,
+        )
+        db.add(room)
+        db.flush()
+        invite.chat_id = room.id
+    else:
+        room = db.query(ChatRoom).filter(ChatRoom.id == invite.chat_id).first()
+        if not room:
+            raise HTTPException(status_code=404, detail="Chat room not found")
 
     if room.created_by_id != current_user.id:
         raise HTTPException(status_code=403, detail="Only the room creator can invite users")

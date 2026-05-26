@@ -284,3 +284,32 @@ export async function logoutApi(): Promise<void> {
 	}
 	clearAuthTokens();
 }
+
+
+// APIs for chatroom functionality
+
+export async function getChatInvites<T = unknown>(): Promise<T> {
+	return fetchProtectedApi<T>('/inbox', {
+		method: 'GET',
+	});
+}
+
+export async function inviteToChat<T = unknown>(payload: unknown): Promise<T> {
+	return fetchProtectedApi<T>(`/inbox/invite`, {
+		method: 'POST',
+		headers: { 'Content-Type': 'application/json' },
+		body: JSON.stringify(payload),
+	});
+}
+
+export async function acceptChatInvite<T = unknown>(chatId: number): Promise<T> {
+	return fetchProtectedApi<T>(`/inbox/${chatId}/accept`, {
+		method: 'POST',
+	});
+}
+
+export async function declineChatInvite<T = unknown>(chatId: number): Promise<T> {
+	return fetchProtectedApi<T>(`/inbox/${chatId}/decline`, {
+		method: 'POST',
+	});
+}
