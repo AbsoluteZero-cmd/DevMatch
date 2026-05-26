@@ -4,11 +4,14 @@ import json
 
 
 class ConnectionManager:
-    def __init__(self):
-        # room_id: list of connections
-        self.active_connections: Dict[int, List[WebSocket]] = {}
-        # user_id: room_id
-        self.user_rooms: Dict[int, int] = {}
+    _instance = None
+
+    def __new__(cls):
+        if cls._instance is None:
+            cls._instance = super().__new__(cls)
+            cls._instance.active_connections: Dict[int, List[WebSocket]] = {}
+            cls._instance.user_rooms: Dict[int, int] = {}
+        return cls._instance
 
     async def connect(self, websocket: WebSocket, room_id: int, user_id: int):
         await websocket.accept()
@@ -19,7 +22,6 @@ class ConnectionManager:
         self.active_connections[room_id].append(websocket)
         self.user_rooms[user_id] = room_id
 
-        # Notify others that user joined
         await self.broadcast_to_room(
             room_id,
             {
@@ -31,7 +33,8 @@ class ConnectionManager:
 
     def disconnect(self, websocket: WebSocket, room_id: int, user_id: int):
         if room_id in self.active_connections:
-            self.active_connections[room_id].remove(websocket)
+            if websocket in self.active_connections[room_id]:
+                self.active_connections[room_id].remove(websocket)
             if len(self.active_connections[room_id]) == 0:
                 del self.active_connections[room_id]
 
@@ -50,6 +53,19 @@ class ConnectionManager:
                 except Exception:
                     disconnected.append(connection)
 
-            # Remove disconnected clients
             for connection in disconnected:
                 self.active_connections[room_id].remove(connection)
+
+    async def send_to_user(self, user_id: int, message: dict):
+        room_id = self.user_rooms.get(user_id)
+        if room_id is None:
+            return
+        if room_id in self.active_connections:
+            for connection in self.active_connections[room_id]:
+                try:
+                    await connection.send_text(json.dumps(message))
+                except Exception:
+                    pass
+
+
+manager = ConnectionManager()

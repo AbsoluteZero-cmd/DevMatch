@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 from app.core.dependencies import get_db
 from app.models.user import User
 from app.models.message import Message
-from app.services.websocket_manager import ConnectionManager
+from app.services.websocket_manager import manager
 
 import json
 
@@ -44,8 +44,6 @@ async def websocket_endpoint(
     if not user:
         await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
         return
-
-    manager = ConnectionManager()
 
     try:
         await manager.connect(websocket, room_id, user.id)

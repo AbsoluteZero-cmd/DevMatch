@@ -27,3 +27,4 @@ class ChatRoom(Base):
     # Relationships
     created_by = relationship("User", back_populates="rooms_created")
     messages = relationship("Message", back_populates="room")
+    participants = relationship("ChatParticipant", back_populates="room")
