@@ -193,10 +193,16 @@ async def send_message(
     db.commit()
     db.refresh(db_message)
 
-    await manager.broadcast_to_room(
-        room_id,
+    participants = db.query(ChatParticipant).filter(ChatParticipant.room_id == room_id).all()
+    participant_ids = [p.user_id for p in participants]
+
+    
+
+    await manager.broadcast_to_users(
+        participant_ids,
         {
             "type": "new_message",
+            "room_id": room_id,
             "message_id": db_message.id,
             "user_id": current_user.id,
             "full_name": current_user.full_name,
@@ -363,8 +369,10 @@ async def accept_chat(
     db.commit()
     db.refresh(participant)
 
-    await manager.broadcast_to_room(
-        chat_id,
+
+
+    await manager.broadcast_to_users(
+        [participant.user_id],
         {
             "type": "inbox_accepted",
             "user_id": current_user.id,
@@ -401,8 +409,8 @@ async def decline_chat(
     db.commit()
     db.refresh(participant)
 
-    await manager.broadcast_to_room(
-        chat_id,
+    await manager.broadcast_to_users(
+        [participant.user_id],
         {
             "type": "inbox_declined",
             "user_id": current_user.id,

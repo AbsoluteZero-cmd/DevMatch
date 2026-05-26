@@ -54,7 +54,7 @@ const statusStyles: Record<DisplayStatus, string> = {
 }
 
 export default function InboxPage() {
-  const { user } = useAuth()
+  const { user, accessToken } = useAuth()
   const [items, setItems] = useState<InboxItem[]>([])
   const [selected, setSelected] = useState<InboxItem | null>(null)
   const [messages, setMessages] = useState<ChatMessage[]>([])
@@ -63,6 +63,61 @@ export default function InboxPage() {
   const [messagesLoading, setMessagesLoading] = useState(false)
   const [sending, setSending] = useState(false)
   const messagesEndRef = useRef<HTMLDivElement>(null)
+
+
+  const socketRef = useRef<WebSocket | null>(null)
+  const selectedRef = useRef(selected)
+  selectedRef.current = selected
+  const userRef = useRef(user)
+  userRef.current = user
+
+  useEffect(() => {
+    if (!accessToken) return
+
+    const ws = new WebSocket(`ws://localhost:8000/ws/inbox?token=${accessToken}`)
+    socketRef.current = ws
+
+    ws.onmessage = (event) => {
+      const data = JSON.parse(event.data)
+
+      if (data.type === "new_message") {
+        const currentUser = userRef.current
+        const currentSelected = selectedRef.current
+        if (currentUser && data.user_id === Number(currentUser.id)) return
+
+        if (currentSelected && data.room_id === currentSelected.room_id) {
+          setMessages((prev: ChatMessage[]) => {
+            if (prev.some((m) => m.id === data.message_id)) return prev
+            return [
+              ...prev,
+              {
+                id: data.message_id,
+                room_id: data.room_id,
+                user_id: data.user_id,
+                content: data.content,
+                message_type: data.message_type || "text",
+                created_at: data.timestamp,
+              },
+            ]
+          })
+        }
+        setItems((prev: InboxItem[]) =>
+          prev.map((i: InboxItem) =>
+            i.room_id === data.room_id ? { ...i, last_message: data.content } : i
+          )
+        )
+      }
+
+      if (data.type === "inbox_invite") {
+        getInbox<InboxItem[]>().then(setItems).catch(() => {})
+      }
+    }
+
+    return () => {
+      ws.close()
+      socketRef.current = null
+    }
+  }, [accessToken])
 
   useEffect(() => {
     getInbox<InboxItem[]>()
@@ -81,6 +136,7 @@ export default function InboxPage() {
       .then(setMessages)
       .catch(() => setMessages([]))
       .finally(() => setMessagesLoading(false))
+      
   }, [selected?.room_id])
 
   useEffect(() => {

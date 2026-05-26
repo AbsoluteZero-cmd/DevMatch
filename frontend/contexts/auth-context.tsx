@@ -12,6 +12,7 @@ import {
 	clearAuthTokens,
 	getCurrentUser,
 	getStoredAuthTokens,
+	getStoredAccessToken,
 	saveAuthTokens,
 	logoutApi,
 } from '@/lib/api';
@@ -40,6 +41,7 @@ export interface RegisterCredentials {
 interface AuthContextType {
 	user: User | null;
 	isLoading: boolean;
+	accessToken: string | null;
 	login: (credentials: LoginCredentials) => Promise<AuthTokens>;
 	register: (credentials: RegisterCredentials) => Promise<unknown>;
 	logout: () => void;
@@ -51,6 +53,7 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 export function AuthProvider({ children }: { children: ReactNode }) {
 	const [user, setUser] = useState<User | null>(null);
 	const [isLoading, setIsLoading] = useState(true);
+	const [accessToken, setAccessToken] = useState<string | null>(getStoredAccessToken());
 
 	useEffect(() => {
 		const restoreAuth = async () => {
@@ -105,6 +108,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
 		const authData = (await response.json()) as AuthTokens;
 		saveAuthTokens(authData);
+		setAccessToken(authData.access_token);
 
 		try {
 			const currentUser = await getCurrentUser<{
@@ -148,6 +152,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 	const logout = () => {
 		logoutApi();
 		setUser(null);
+		setAccessToken(null);
 	};
 
 	return (
@@ -155,6 +160,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 			value={{
 				user,
 				isLoading,
+				accessToken,
 				login,
 				logout,
 				register,
