@@ -1,7 +1,15 @@
-from sqlalchemy import String, Boolean, DateTime
+from sqlalchemy import String, Boolean, DateTime, Enum as SAEnum
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from datetime import datetime
 from app.db.base import Base
+
+from enum import Enum
+
+
+class UserRole(str, Enum):
+    DEVELOPER = "DEVELOPER"
+    TEAM_LEADER = "TEAM_LEADER"
+    ADMIN = "ADMIN"
 
 
 class User(Base):
@@ -13,6 +21,10 @@ class User(Base):
     hashed_password: Mapped[str] = mapped_column(String, nullable=False)
     is_verified: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+    role: Mapped[UserRole] = mapped_column(
+        SAEnum(UserRole, name="user_role"), default=UserRole.DEVELOPER, nullable=False
+    )
 
     # Relationships
     messages = relationship("Message", back_populates="user")

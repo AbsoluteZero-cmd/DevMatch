@@ -14,7 +14,7 @@ from app.core.security import (
     create_access_token,
     create_refresh_token,
 )
-from app.models.user import User
+from app.models.user import User, UserRole
 from app.models.profile import Profile
 from app.models.refresh_token import RefreshToken
 
@@ -25,6 +25,7 @@ class UserRegister(BaseModel):
     full_name: str
     email: str
     password: str
+    role: UserRole = UserRole.DEVELOPER
 
 
 class UserIn(BaseModel):
@@ -64,6 +65,7 @@ async def register(payload: UserRegister, db: Session = Depends(get_db)):
         full_name=payload.full_name,
         email=payload.email,
         hashed_password=get_password_hash(payload.password),
+        role=payload.role,
     )
     db.add(user)
     db.flush()

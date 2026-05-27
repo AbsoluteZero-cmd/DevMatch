@@ -7,12 +7,14 @@ import { Input } from "@/components/ui/input"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Badge } from "@/components/ui/badge"
 import { cn } from "@/lib/utils"
-import { Send, ArrowLeft, Loader2, Inbox } from "lucide-react"
+import { Send, ArrowLeft, Loader2, Inbox, Briefcase } from "lucide-react"
 import { useAuth } from "@/contexts/auth-context"
 import {
   getInbox,
-  acceptChatInvite,
+  markInterested,
   declineChatInvite,
+  joinTeam,
+  cancelJoin,
   getRoomMessages,
   sendRoomMessage,
 } from "@/lib/api"
@@ -28,6 +30,13 @@ interface InboxItem {
   created_by_id: number
   created_by_name: string
   last_message: string | null
+  offer_status: string | null
+  team_id: string | null
+  job_posting_id: string | null
+  team_introduction: string | null
+  proposed_role: string | null
+  expected_contributions: string | null
+  compensation_details: string | null
 }
 
 interface ChatMessage {
@@ -39,18 +48,42 @@ interface ChatMessage {
   created_at: string
 }
 
-type DisplayStatus = "Pending" | "Accepted" | "Declined"
+type Phase =
+  | "pending"
+  | "interested"
+  | "joined"
+  | "declined"
+  | "chat"
+  | "readonly"
 
-function toDisplayStatus(status: string): DisplayStatus {
-  if (status === "accepted") return "Accepted"
-  if (status === "declined") return "Declined"
-  return "Pending"
+function getPhase(item: InboxItem | null, currentUserId: number | null): Phase {
+  if (!item) return "readonly"
+  const isRecipient = currentUserId !== null && item.created_by_id !== currentUserId
+  const hasOffer = !!item.offer_status
+
+  if (item.status === "declined") return "declined"
+  if (hasOffer && item.offer_status === "declined") return "declined"
+  if (hasOffer && item.offer_status === "cancelled") return "declined"
+
+  if (hasOffer && isRecipient) {
+    if (item.status === "pending") return "pending"
+    if (item.offer_status === "accepted") return "joined"
+    if (item.offer_status === "interested") return "interested"
+    return "chat"
+  }
+
+  if (item.status === "pending") return "pending"
+  return "chat"
 }
 
-const statusStyles: Record<DisplayStatus, string> = {
-  Pending: "bg-amber-100 text-amber-700",
-  Accepted: "bg-green-100 text-green-700",
-  Declined: "bg-red-100 text-red-700",
+function statusBadge(item: InboxItem | null): { label: string; className: string } {
+  if (!item) return { label: "Pending", className: "bg-amber-100 text-amber-700" }
+  if (item.offer_status === "accepted") return { label: "Joined", className: "bg-green-100 text-green-700" }
+  if (item.offer_status === "interested") return { label: "Interested", className: "bg-blue-100 text-blue-700" }
+  if (item.offer_status === "declined" || item.status === "declined") return { label: "Declined", className: "bg-red-100 text-red-700" }
+  if (item.offer_status === "cancelled") return { label: "Cancelled", className: "bg-muted text-muted-foreground" }
+  if (item.status === "accepted") return { label: "Accepted", className: "bg-green-100 text-green-700" }
+  return { label: "Pending", className: "bg-amber-100 text-amber-700" }
 }
 
 export default function InboxPage() {
@@ -62,8 +95,10 @@ export default function InboxPage() {
   const [loading, setLoading] = useState(true)
   const [messagesLoading, setMessagesLoading] = useState(false)
   const [sending, setSending] = useState(false)
+  const [actionLoading, setActionLoading] = useState(false)
   const messagesEndRef = useRef<HTMLDivElement>(null)
 
+  const currentUserId = user ? Number(user.id) : null
 
   const socketRef = useRef<WebSocket | null>(null)
   const selectedRef = useRef(selected)
@@ -108,8 +143,21 @@ export default function InboxPage() {
         )
       }
 
-      if (data.type === "inbox_invite") {
+      if (data.type === "inbox_invite" || data.type === "new_offer") {
         getInbox<InboxItem[]>().then(setItems).catch(() => {})
+      }
+
+      if (data.type === "Interested in offer" || data.type === "Offer accepted" || data.type === "Offer declined") {
+        getInbox<InboxItem[]>()
+          .then((fresh) => {
+            setItems(fresh)
+            const sel = selectedRef.current
+            if (sel) {
+              const updated = fresh.find((i) => i.room_id === sel.room_id)
+              if (updated) setSelected(updated)
+            }
+          })
+          .catch(() => {})
       }
     }
 
@@ -136,31 +184,59 @@ export default function InboxPage() {
       .then(setMessages)
       .catch(() => setMessages([]))
       .finally(() => setMessagesLoading(false))
-      
   }, [selected?.room_id])
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" })
   }, [messages])
 
-  const handleAccept = async (item: InboxItem, e?: React.MouseEvent) => {
+  const refreshSelected = (updates: Partial<InboxItem>) => {
+    if (!selected) return
+    const merged = { ...selected, ...updates }
+    setSelected(merged)
+    setItems((prev) => prev.map((i) => (i.id === selected.id ? merged : i)))
+  }
+
+  const handleInterested = async (item: InboxItem, e?: React.MouseEvent) => {
     e?.stopPropagation()
+    setActionLoading(true)
     try {
-      await acceptChatInvite(item.room_id)
-      const updated = { ...item, status: "accepted" }
-      setItems(prev => prev.map(i => i.id === item.id ? updated : i))
-      if (selected?.id === item.id) setSelected(updated)
+      await markInterested(item.room_id)
+      const updates = { status: "accepted", offer_status: "interested" }
+      setItems((prev) => prev.map((i) => (i.id === item.id ? { ...i, ...updates } : i)))
+      if (selected?.id === item.id) setSelected({ ...item, ...updates })
     } catch {}
+    setActionLoading(false)
   }
 
   const handleDecline = async (item: InboxItem, e?: React.MouseEvent) => {
     e?.stopPropagation()
+    setActionLoading(true)
     try {
       await declineChatInvite(item.room_id)
-      const updated = { ...item, status: "declined" }
-      setItems(prev => prev.map(i => i.id === item.id ? updated : i))
-      if (selected?.id === item.id) setSelected(updated)
+      const updates = { status: "declined", offer_status: "declined" }
+      setItems((prev) => prev.map((i) => (i.id === item.id ? { ...i, ...updates } : i)))
+      if (selected?.id === item.id) setSelected({ ...item, ...updates })
     } catch {}
+    setActionLoading(false)
+  }
+
+  const handleJoin = async (item: InboxItem) => {
+    setActionLoading(true)
+    try {
+      await joinTeam(item.room_id)
+      refreshSelected({ offer_status: "accepted" })
+    } catch {}
+    setActionLoading(false)
+  }
+
+  const handleCancelJoin = async (item: InboxItem) => {
+    setActionLoading(true)
+    try {
+      await cancelJoin(item.room_id)
+      refreshSelected({ offer_status: "cancelled" })
+    } catch {}
+    setActionLoading(false)
   }
 
   const handleSendMessage = async (e: React.FormEvent) => {
@@ -170,9 +246,9 @@ export default function InboxPage() {
     setSending(true)
     try {
       const msg = await sendRoomMessage<ChatMessage>(selected.room_id, newMessage.trim())
-      setMessages(prev => [...prev, msg])
-      setItems(prev =>
-        prev.map(i =>
+      setMessages((prev) => [...prev, msg])
+      setItems((prev) =>
+        prev.map((i) =>
           i.id === selected.id ? { ...i, last_message: msg.content } : i
         )
       )
@@ -191,7 +267,10 @@ export default function InboxPage() {
     )
   }
 
-  const displayStatus = selected ? toDisplayStatus(selected.status) : "Pending"
+  const selectedPhase = getPhase(selected, currentUserId)
+  const selectedBadge = statusBadge(selected)
+  const canChat = selected !== null && (selectedPhase === "interested" || selectedPhase === "joined" || selectedPhase === "chat")
+  const hasOfferDetails = selected !== null && !!selected.offer_status
 
   return (
     <main className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
@@ -217,7 +296,8 @@ export default function InboxPage() {
               </Card>
             ) : (
               items.map((item) => {
-                const status = toDisplayStatus(item.status)
+                const phase = getPhase(item, currentUserId)
+                const badge = statusBadge(item)
                 return (
                   <Card
                     key={item.id}
@@ -240,8 +320,8 @@ export default function InboxPage() {
                               <h3 className="font-semibold text-foreground">{item.room_name}</h3>
                               {item.role && <p className="text-sm text-primary">{item.role}</p>}
                             </div>
-                            <Badge className={cn("shrink-0", statusStyles[status])}>
-                              {status}
+                            <Badge className={cn("shrink-0", badge.className)}>
+                              {badge.label}
                             </Badge>
                           </div>
                           <p className="mt-1 text-sm text-muted-foreground">
@@ -256,20 +336,22 @@ export default function InboxPage() {
                             {new Date(item.invited_at).toLocaleDateString()}
                           </p>
 
-                          {status === "Pending" && (
+                          {phase === "pending" && (
                             <div className="mt-3 flex gap-2">
                               <Button
                                 size="sm"
                                 className="flex-1 bg-green-600 hover:bg-green-700"
-                                onClick={(e) => handleAccept(item, e)}
+                                onClick={(e) => handleInterested(item, e)}
+                                disabled={actionLoading}
                               >
-                                Accept
+                                Interested
                               </Button>
                               <Button
                                 size="sm"
                                 variant="destructive"
                                 className="flex-1"
                                 onClick={(e) => handleDecline(item, e)}
+                                disabled={actionLoading}
                               >
                                 Decline
                               </Button>
@@ -310,9 +392,7 @@ export default function InboxPage() {
                       <p className="text-sm text-muted-foreground">{selected.role}</p>
                     )}
                   </div>
-                  <Badge className={statusStyles[displayStatus]}>
-                    {displayStatus}
-                  </Badge>
+                  <Badge className={selectedBadge.className}>{selectedBadge.label}</Badge>
                 </div>
 
                 <div className="flex-1 overflow-y-auto p-4">
@@ -320,12 +400,49 @@ export default function InboxPage() {
                     <div className="flex h-full items-center justify-center">
                       <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
                     </div>
-                  ) : messages.length === 0 ? (
-                    <div className="flex h-full items-center justify-center">
-                      <p className="text-sm text-muted-foreground">No messages yet</p>
-                    </div>
                   ) : (
                     <div className="space-y-4">
+                      {hasOfferDetails && (
+                        <Card className="border-primary/30 bg-primary/5">
+                          <CardContent className="space-y-2 p-4">
+                            <div className="flex items-center gap-2">
+                              <Briefcase className="h-4 w-4 text-primary" />
+                              <h4 className="text-sm font-semibold text-foreground">Offer Details</h4>
+                            </div>
+                            {selected.proposed_role && (
+                              <div>
+                                <p className="text-xs font-medium text-muted-foreground">Proposed role</p>
+                                <p className="text-sm text-foreground">{selected.proposed_role}</p>
+                              </div>
+                            )}
+                            {selected.team_introduction && (
+                              <div>
+                                <p className="text-xs font-medium text-muted-foreground">Team introduction</p>
+                                <p className="text-sm whitespace-pre-wrap text-foreground">{selected.team_introduction}</p>
+                              </div>
+                            )}
+                            {selected.expected_contributions && (
+                              <div>
+                                <p className="text-xs font-medium text-muted-foreground">Expected contributions</p>
+                                <p className="text-sm whitespace-pre-wrap text-foreground">{selected.expected_contributions}</p>
+                              </div>
+                            )}
+                            {selected.compensation_details && (
+                              <div>
+                                <p className="text-xs font-medium text-muted-foreground">Compensation</p>
+                                <p className="text-sm whitespace-pre-wrap text-foreground">{selected.compensation_details}</p>
+                              </div>
+                            )}
+                          </CardContent>
+                        </Card>
+                      )}
+
+                      {messages.length === 0 && !hasOfferDetails && (
+                        <div className="flex h-full items-center justify-center">
+                          <p className="text-sm text-muted-foreground">No messages yet</p>
+                        </div>
+                      )}
+
                       {messages.map((msg) => {
                         const isMe = user && msg.user_id === Number(user.id)
                         return (
@@ -358,34 +475,79 @@ export default function InboxPage() {
                 </div>
 
                 <div className="border-t border-border p-4">
-                  {displayStatus === "Pending" && (
+                  {selectedPhase === "pending" && (
                     <div className="mb-3 flex gap-2">
                       <Button
                         size="sm"
                         className="flex-1 bg-green-600 hover:bg-green-700"
-                        onClick={() => handleAccept(selected)}
+                        onClick={() => handleInterested(selected)}
+                        disabled={actionLoading}
                       >
-                        Accept
+                        Interested
                       </Button>
                       <Button
                         size="sm"
                         variant="destructive"
                         className="flex-1"
                         onClick={() => handleDecline(selected)}
+                        disabled={actionLoading}
                       >
                         Decline
                       </Button>
                     </div>
                   )}
+
+                  {selectedPhase === "interested" && (
+                    <div className="mb-3 flex gap-2">
+                      <Button
+                        size="sm"
+                        className="flex-1 bg-green-600 hover:bg-green-700"
+                        onClick={() => handleJoin(selected)}
+                        disabled={actionLoading}
+                      >
+                        Join Team
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="destructive"
+                        className="flex-1"
+                        onClick={() => handleDecline(selected)}
+                        disabled={actionLoading}
+                      >
+                        Decline
+                      </Button>
+                    </div>
+                  )}
+
+                  {selectedPhase === "joined" && (
+                    <div className="mb-3">
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="w-full"
+                        onClick={() => handleCancelJoin(selected)}
+                        disabled={actionLoading}
+                      >
+                        Cancel Join
+                      </Button>
+                    </div>
+                  )}
+
+                  {selectedPhase === "declined" && (
+                    <p className="mb-3 text-center text-sm text-muted-foreground">
+                      This offer is no longer active.
+                    </p>
+                  )}
+
                   <form onSubmit={handleSendMessage} className="flex gap-2">
                     <Input
-                      placeholder="Type a message..."
+                      placeholder={canChat ? "Type a message..." : "Mark interested to start chatting"}
                       value={newMessage}
                       onChange={(e) => setNewMessage(e.target.value)}
                       className="flex-1"
-                      disabled={sending}
+                      disabled={sending || !canChat}
                     />
-                    <Button type="submit" size="icon" disabled={!newMessage.trim() || sending}>
+                    <Button type="submit" size="icon" disabled={!newMessage.trim() || sending || !canChat}>
                       {sending ? (
                         <Loader2 className="h-4 w-4 animate-spin" />
                       ) : (

@@ -70,8 +70,12 @@ class TeamMember(Base):
     )
     # Unregistered member fields (FR-37)
     unregistered_name: Mapped[Optional[str]] = mapped_column(String, nullable=True)
-    unregistered_role_description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-    unregistered_experience_description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    unregistered_role_description: Mapped[Optional[str]] = mapped_column(
+        Text, nullable=True
+    )
+    unregistered_experience_description: Mapped[Optional[str]] = mapped_column(
+        Text, nullable=True
+    )
     is_registered: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     joined_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
@@ -105,7 +109,14 @@ class JobPosting(Base):
 
     team: Mapped["Team"] = relationship("Team", back_populates="job_postings")
     recommendations: Mapped[List["CandidateRecommendation"]] = relationship(
-        "CandidateRecommendation", back_populates="job_posting", cascade="all, delete-orphan"
+        "CandidateRecommendation",
+        back_populates="job_posting",
+        cascade="all, delete-orphan",
+    )
+
+    # One-to-many relationship to offers for this job posting
+    offers: Mapped[List["Offer"]] = relationship(
+        "Offer", back_populates="job_posting", cascade="all, delete-orphan"
     )
 
 
@@ -114,6 +125,7 @@ class CandidateRecommendation(Base):
     Cached recommendation results per job posting.
     Refreshed whenever team composition or posting requirements change (FR-48).
     """
+
     __tablename__ = "candidate_recommendations"
 
     id: Mapped[int] = mapped_column(primary_key=True)

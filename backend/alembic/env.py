@@ -15,6 +15,7 @@ from app.models.team import Team, TeamMember, JobPosting, CandidateRecommendatio
 from app.models.oauth_token import OAuthToken
 from app.models.refresh_token import RefreshToken
 from app.models.chat_participant import ChatParticipant
+from app.models.offer import Offer
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.

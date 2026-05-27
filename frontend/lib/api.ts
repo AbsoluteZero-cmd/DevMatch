@@ -290,8 +290,8 @@ export async function getInbox<T = unknown>(): Promise<T> {
 	return fetchProtectedApi<T>('/chatrooms/inbox');
 }
 
-export async function acceptChatInvite<T = unknown>(roomId: number): Promise<T> {
-	return fetchProtectedApi<T>(`/chatrooms/inbox/${roomId}/accept`, {
+export async function markInterested<T = unknown>(roomId: number): Promise<T> {
+	return fetchProtectedApi<T>(`/chatrooms/inbox/${roomId}/interested`, {
 		method: 'POST',
 	});
 }
@@ -300,6 +300,67 @@ export async function declineChatInvite<T = unknown>(roomId: number): Promise<T>
 	return fetchProtectedApi<T>(`/chatrooms/inbox/${roomId}/decline`, {
 		method: 'POST',
 	});
+}
+
+export async function joinTeam<T = unknown>(roomId: number): Promise<T> {
+	return fetchProtectedApi<T>(`/chatrooms/inbox/${roomId}/join`, {
+		method: 'POST',
+	});
+}
+
+export async function cancelJoin<T = unknown>(roomId: number): Promise<T> {
+	return fetchProtectedApi<T>(`/chatrooms/inbox/${roomId}/cancel-join`, {
+		method: 'POST',
+	});
+}
+
+export interface SendOfferPayload {
+	team_id: string;
+	recipient_id: number;
+	job_posting_id: string;
+	team_introduction?: string;
+	proposed_role?: string;
+	expected_contributions?: string;
+	compensation_details?: string;
+}
+
+export async function sendOffer<T = unknown>(payload: SendOfferPayload): Promise<T> {
+	return fetchProtectedApi<T>('/chatrooms/inbox/offer', {
+		method: 'POST',
+		headers: { 'Content-Type': 'application/json' },
+		body: JSON.stringify(payload),
+	});
+}
+
+export interface TeamSummary {
+	id: string;
+	name: string;
+	development_goal: string | null;
+	description: string | null;
+	visibility: string;
+	leader_id: number;
+	created_at: string;
+	members: Array<{
+		id: number;
+		is_registered: boolean;
+		user_id: number | null;
+		unregistered_name: string | null;
+		unregistered_role_description: string | null;
+	}>;
+	job_postings: Array<{
+		id: string;
+		title: string;
+		required_role: string;
+		role_description: string | null;
+		min_skill_level: string;
+		status: string;
+		is_public: boolean;
+		created_at: string;
+	}>;
+}
+
+export async function listMyTeams(): Promise<TeamSummary[]> {
+	return fetchProtectedApi<TeamSummary[]>('/teams');
 }
 
 export async function getRoomMessages<T = unknown>(roomId: number): Promise<T> {

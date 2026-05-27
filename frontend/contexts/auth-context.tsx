@@ -129,6 +129,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 	};
 
 	const register = async (credentials: RegisterCredentials) => {
+		const backendRole =
+			credentials.role === 'team-leader' ? 'TEAM_LEADER' : 'DEVELOPER';
+
 		const response = await fetch(
 			process.env.NEXT_PUBLIC_BACKEND_URL
 				? `${process.env.NEXT_PUBLIC_BACKEND_URL}/api/v1/auth/register`
@@ -138,7 +141,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 				headers: {
 					'Content-Type': 'application/json',
 				},
-				body: JSON.stringify(credentials),
+				body: JSON.stringify({
+					full_name: credentials.full_name,
+					email: credentials.email,
+					password: credentials.password,
+					role: backendRole,
+				}),
 			},
 		);
 
