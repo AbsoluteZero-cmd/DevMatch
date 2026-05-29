@@ -119,6 +119,12 @@ class JobPosting(Base):
         "Offer", back_populates="job_posting", cascade="all, delete-orphan"
     )
 
+    applications: Mapped[List["DeveloperApplication"]] = relationship(
+        "DeveloperApplication",
+        back_populates="job_posting",
+        cascade="all, delete-orphan",
+    )
+
 
 class CandidateRecommendation(Base):
     """

@@ -3,6 +3,8 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from datetime import datetime
 from app.db.base import Base
 
+from typing import List, Optional
+
 from enum import Enum
 
 
@@ -31,4 +33,7 @@ class User(Base):
     rooms_created = relationship("ChatRoom", back_populates="created_by")
     profile: Mapped["Profile"] = relationship(
         "Profile", back_populates="user", uselist=False
+    )
+    applications: Mapped[List["DeveloperApplication"]] = relationship(
+        "DeveloperApplication", back_populates="applicant", cascade="all, delete-orphan"
     )

@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timedelta
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -15,6 +15,10 @@ from app.models.chat_participant import ChatParticipant, ChatParticipantStatus
 from app.services.websocket_manager import manager
 from app.models.offer import Offer, OfferStatus
 from app.models.team import JobPosting, JobPostingStatus, Team, TeamMember
+from backend.app.models.developer_application import (
+    ApplicationStatus,
+    DeveloperApplication,
+)
 
 router = APIRouter()
 
@@ -296,7 +300,11 @@ async def get_inbox(
                 last_message=last_msg.content if last_msg else None,
                 offer_status=offer.status.value if offer else None,
                 team_id=str(offer.team_id) if offer else None,
-                job_posting_id=str(offer.job_posting_id) if offer and offer.job_posting_id else None,
+                job_posting_id=(
+                    str(offer.job_posting_id)
+                    if offer and offer.job_posting_id
+                    else None
+                ),
                 team_introduction=offer.team_introduction if offer else None,
                 proposed_role=offer.proposed_role if offer else None,
                 expected_contributions=offer.expected_contributions if offer else None,
@@ -346,6 +354,22 @@ async def send_offer(
             status_code=403, detail="You can only send offers for teams you lead."
         )
 
+    open_offers_count = (
+        db.query(Offer)
+        .filter(
+            Offer.team_id == team.id,
+            Offer.status.in_([OfferStatus.PENDING]),
+        )
+        .count()
+    )
+
+    # FR-52: max 20 concurrent open offers per team
+    if open_offers_count >= 20:
+        raise HTTPException(
+            status_code=400,
+            detail="Cannot send offer: Your team already has 20 open offers. Please wait for some offers to be accepted or declined before sending more.",
+        )
+
     posting = (
         db.query(JobPosting)
         .filter(
@@ -386,6 +410,7 @@ async def send_offer(
         expected_contributions=offer_data.expected_contributions,
         compensation_details=offer_data.compensation_details,
         job_posting_id=offer_data.job_posting_id,
+        expires_at=datetime.utcnow() + timedelta(days=7),  # Offers expire after 7 days
     )
     db.add(db_offer)  # Add to database
     db.flush()
@@ -604,20 +629,21 @@ async def join_team(
 
     for o in other_offers:
         o.status = OfferStatus.CANCELLED
-    db.commit()
 
     # FR-55-d:  cancel all pending applications submitted by that developer.
-    # pending_applications = (
-    #     db.query(Offer)
-    #     .filter(
-    #         Offer.recipient_id == current_user.id,
-    #         Offer.status == OfferStatus.PENDING,
-    #     )
-    #     .all()
-    # )
-    # for app in pending_applications:
-    #     app.status = OfferStatus.CANCELLED
-    # db.commit()
+    pending_applications = (
+        db.query(DeveloperApplication)
+        .filter(
+            DeveloperApplication.applicant_id == current_user.id,
+            DeveloperApplication.status == ApplicationStatus.PENDING,
+        )
+        .all()
+    )
+
+    for app in pending_applications:
+        app.status = ApplicationStatus.CANCELLED
+
+    db.commit()
 
     participant = (
         db.query(ChatParticipant)
@@ -687,6 +713,15 @@ async def cancel_join(
             ChatParticipant.user_id == current_user.id,
         )
         .first()
+    )
+
+    await manager.broadcast_to_users(
+        [offer.recipient_id, offer.sender_id],
+        {
+            "type": "Offer cancelled",
+            "user_id": current_user.id,
+            "room_id": chat_id,
+        },
     )
 
     return participant
