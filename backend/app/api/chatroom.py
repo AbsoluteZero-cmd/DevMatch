@@ -15,7 +15,7 @@ from app.models.chat_participant import ChatParticipant, ChatParticipantStatus
 from app.services.websocket_manager import manager
 from app.models.offer import Offer, OfferStatus
 from app.models.team import JobPosting, JobPostingStatus, Team, TeamMember
-from backend.app.models.developer_application import (
+from app.models.developer_application import (
     ApplicationStatus,
     DeveloperApplication,
 )
