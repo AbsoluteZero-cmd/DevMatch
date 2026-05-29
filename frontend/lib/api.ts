@@ -363,6 +363,162 @@ export async function listMyTeams(): Promise<TeamSummary[]> {
 	return fetchProtectedApi<TeamSummary[]>('/teams');
 }
 
+export interface CreateTeamPayload {
+	name: string;
+	development_goal?: string | null;
+	description?: string | null;
+	visibility?: 'PUBLIC' | 'PRIVATE';
+}
+
+export async function createTeam<T = TeamSummary>(payload: CreateTeamPayload): Promise<T> {
+	return fetchProtectedApi<T>('/teams', {
+		method: 'POST',
+		headers: { 'Content-Type': 'application/json' },
+		body: JSON.stringify(payload),
+	});
+}
+
+export interface CreateJobPostingPayload {
+	title: string;
+	required_role: string;
+	role_description?: string | null;
+	min_skill_level?: string;
+	is_public?: boolean;
+}
+
+export async function createJobPosting<T = unknown>(
+	teamId: string,
+	payload: CreateJobPostingPayload,
+): Promise<T> {
+	return fetchProtectedApi<T>(`/teams/${teamId}/postings`, {
+		method: 'POST',
+		headers: { 'Content-Type': 'application/json' },
+		body: JSON.stringify(payload),
+	});
+}
+
+export interface UpdateJobPostingPayload {
+	title?: string;
+	role_description?: string | null;
+	min_skill_level?: string;
+	is_public?: boolean;
+}
+
+export async function updateJobPosting<T = unknown>(
+	teamId: string,
+	postingId: string,
+	payload: UpdateJobPostingPayload,
+): Promise<T> {
+	return fetchProtectedApi<T>(`/teams/${teamId}/postings/${postingId}`, {
+		method: 'PATCH',
+		headers: { 'Content-Type': 'application/json' },
+		body: JSON.stringify(payload),
+	});
+}
+
+export async function closeJobPosting<T = unknown>(
+	teamId: string,
+	postingId: string,
+): Promise<T> {
+	return fetchProtectedApi<T>(`/teams/${teamId}/postings/${postingId}/close`, {
+		method: 'POST',
+	});
+}
+
+export interface TeamCapabilityRead {
+	team_id: string;
+	member_count: number;
+	roles: Record<string, string>;
+	overall_label: string;
+}
+
+export async function getTeamCapability(teamId: string): Promise<TeamCapabilityRead> {
+	return fetchProtectedApi<TeamCapabilityRead>(`/teams/${teamId}/capability`);
+}
+
+export interface RoleRead {
+	id: number;
+	name: string;
+	tier: string;
+	skill_level: string;
+}
+
+export interface SkillTagRead {
+	id: number;
+	name: string;
+	is_ai_generated: boolean;
+}
+
+export interface CandidateRead {
+	profile_id: string;
+	user_id?: number | null;
+	full_name: string | null;
+	match_score: number;
+	rank: number;
+	roles: RoleRead[];
+	skill_tags: SkillTagRead[];
+}
+
+export async function getRecommendations(
+	teamId: string,
+	postingId: string,
+	min_skill_level?: string,
+	skill_tag?: string,
+): Promise<CandidateRead[]> {
+	const params = new URLSearchParams();
+	if (min_skill_level) params.set('min_skill_level', min_skill_level);
+	if (skill_tag) params.set('skill_tag', skill_tag);
+	const qs = params.toString();
+	const path = `/teams/${teamId}/postings/${postingId}/recommendations${qs ? `?${qs}` : ''}`;
+	return fetchProtectedApi<CandidateRead[]>(path);
+}
+
+export interface TeamDiscoveryRead {
+	id: string;
+	name: string;
+	development_goal: string | null;
+	description: string | null;
+	visibility: string;
+	leader_id: number;
+	created_at: string;
+	member_count: number | null;
+	members: TeamSummary['members'];
+	redacted: boolean;
+}
+
+export async function discoverTeams(query?: string): Promise<TeamDiscoveryRead[]> {
+	const qs = query ? `?query=${encodeURIComponent(query)}` : '';
+	return fetchProtectedApi<TeamDiscoveryRead[]>(`/teams/discover${qs}`);
+}
+
+export interface UnregisteredMemberPayload {
+	name: string;
+	role: string;
+	role_description?: string | null;
+	experience_description?: string | null;
+	skill_level: string;
+}
+
+export async function addUnregisteredMember<T = unknown>(
+	teamId: string,
+	payload: UnregisteredMemberPayload,
+): Promise<T> {
+	return fetchProtectedApi<T>(`/teams/${teamId}/members/unregistered`, {
+		method: 'POST',
+		headers: { 'Content-Type': 'application/json' },
+		body: JSON.stringify(payload),
+	});
+}
+
+export async function removeTeamMember<T = unknown>(
+	teamId: string,
+	memberId: number,
+): Promise<T> {
+	return fetchProtectedApi<T>(`/teams/${teamId}/members/${memberId}`, {
+		method: 'DELETE',
+	});
+}
+
 export async function getRoomMessages<T = unknown>(roomId: number): Promise<T> {
 	return fetchProtectedApi<T>(`/chatrooms/rooms/${roomId}/messages`);
 }
