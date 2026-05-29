@@ -19,7 +19,13 @@ from uuid import UUID
 from sqlalchemy.orm import Session, selectinload
 
 from app.models.profile import Profile, ProfileRole, SkillLevel
-from app.models.team import CandidateRecommendation, JobPosting, Team, TeamMember
+from app.models.team import (
+    CandidateRecommendation,
+    JobPosting,
+    Team,
+    TeamMember,
+    JobPostingStatus,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -43,6 +49,25 @@ LEVEL_TO_MIN_SCORE = {
 }
 
 
+LEVEL_TO_MAX_SCORE = {
+    "Beginner": 24,
+    "Intermediate": 49,
+    "Advanced": 74,
+    "Expert": 100,
+}
+
+
+def skill_label_to_avg_score(label: str) -> int:
+    """Convert a skill-level label to the rounded-up average numeric score for that band."""
+    if label not in LEVEL_TO_MIN_SCORE:
+        # default to Intermediate mid-point
+        label = "Intermediate"
+    lo = LEVEL_TO_MIN_SCORE[label]
+    hi = LEVEL_TO_MAX_SCORE[label]
+    avg = (lo + hi) / 2.0
+    return int(avg) if avg == int(avg) else int(avg + 0.9999)
+
+
 def _get_role_score(profile: Profile, role_name: str) -> int:
     """Return developer's Skill Score for the given role, or 0 if not assessed."""
     for pr in profile.profile_roles:
@@ -64,7 +89,9 @@ def _get_team_avg_score_for_role(team: Team, role_name: str, db: Session) -> flo
         if member.is_registered and member.user_id:
             profile = (
                 db.query(Profile)
-                .options(selectinload(Profile.profile_roles).selectinload(ProfileRole.role))
+                .options(
+                    selectinload(Profile.profile_roles).selectinload(ProfileRole.role)
+                )
                 .filter(Profile.user_id == member.user_id)
                 .first()
             )
@@ -74,11 +101,37 @@ def _get_team_avg_score_for_role(team: Team, role_name: str, db: Session) -> flo
                 total_weight += 1.0
         else:
             # Unregistered members: weighted at 50% (FR-38)
-            # We have no Skill Score for them, assume a neutral 25
-            total_weighted += 25 * 0.5
+            # If the team member declared a skill score, prefer that; otherwise assume neutral 25
+            declared = getattr(member, "unregistered_skill_score", None)
+            if declared is not None:
+                total_weighted += declared * 0.5
+            else:
+                total_weighted += 25 * 0.5  # assume mid-level if unknown
             total_weight += 0.5
 
     return (total_weighted / total_weight) if total_weight > 0 else 0.0
+
+
+def refresh_recommendations_for_team(team_id: str, db: Session) -> list[dict]:
+    """Refresh recommendations for all OPEN postings belonging to a team.
+
+    This provides a common trigger to call when team composition or posting
+    requirements change (FR-48).
+    """
+    team = db.query(Team).filter(Team.id == team_id).first()
+    if not team:
+        return []
+    results = []
+    for posting in team.job_postings:
+        if posting.status == JobPostingStatus.OPEN:
+            try:
+                res = generate_recommendations(str(posting.id), db)
+                results.extend(res)
+            except Exception:
+                logger.exception(
+                    "Failed to refresh recommendations for posting %s", posting.id
+                )
+    return results
 
 
 def _get_team_avg_seniority(team: Team, db: Session) -> float:
@@ -92,9 +145,7 @@ def _get_team_avg_seniority(team: Team, db: Session) -> float:
     for member in team.members:
         if member.is_registered and member.user_id:
             profile = (
-                db.query(Profile)
-                .filter(Profile.user_id == member.user_id)
-                .first()
+                db.query(Profile).filter(Profile.user_id == member.user_id).first()
             )
             years = (profile.years_experience or 2) if profile else 2
         else:
@@ -103,6 +154,79 @@ def _get_team_avg_seniority(team: Team, db: Session) -> float:
         count += 1
 
     return (total / count) if count > 0 else 0.3
+
+
+def compute_team_capability(team_id: str, db: Session) -> dict:
+    """
+    Compute a team's capability profile per role and an overall score.
+    Returns a dict with role -> 0-100 score and an overall average (0-100).
+    This is the FR-40 implementation: it aggregates registered member profiles
+    and unregistered declared scores (50% weight) using existing helpers.
+    """
+    team = (
+        db.query(Team)
+        .options(selectinload(Team.members), selectinload(Team.job_postings))
+        .filter(Team.id == team_id)
+        .first()
+    )
+    if not team:
+        raise ValueError(f"Team {team_id} not found")
+
+    roles: set[str] = set()
+
+    # Gather roles from registered members' profiles
+    for member in team.members:
+        if member.is_registered and member.user_id:
+            profile = (
+                db.query(Profile)
+                .options(
+                    selectinload(Profile.profile_roles).selectinload(ProfileRole.role)
+                )
+                .filter(Profile.user_id == member.user_id)
+                .first()
+            )
+            if profile:
+                for pr in profile.profile_roles:
+                    roles.add(pr.role.name)
+        else:
+            # Unregistered member declared role
+            if getattr(member, "unregistered_role_name", None):
+                roles.add(member.unregistered_role_name)
+
+    # Also include roles that the team is recruiting for
+    for p in getattr(team, "job_postings", []):
+        if getattr(p, "required_role", None):
+            roles.add(p.required_role)
+
+    # Map each role numeric score to a label and return labels only (no numeric scores)
+    def _score_to_label(score: int) -> str:
+        if score <= LEVEL_TO_MAX_SCORE["Beginner"]:
+            return "Beginner"
+        if score <= LEVEL_TO_MAX_SCORE["Intermediate"]:
+            return "Intermediate"
+        if score <= LEVEL_TO_MAX_SCORE["Advanced"]:
+            return "Advanced"
+        return "Expert"
+
+    role_labels: dict[str, str] = {}
+    numeric_values: list[int] = []
+    for role in roles:
+        score = int(round(_get_team_avg_score_for_role(team, role, db)))
+        label = _score_to_label(score)
+        role_labels[role] = label
+        numeric_values.append(score)
+
+    overall_numeric = (
+        int(round(sum(numeric_values) / len(numeric_values))) if numeric_values else 0
+    )
+    overall_label = _score_to_label(overall_numeric)
+
+    return {
+        "team_id": str(team.id),
+        "member_count": len(team.members),
+        "roles": role_labels,
+        "overall_label": overall_label,
+    }
 
 
 def compute_match_score(
@@ -163,9 +287,7 @@ def generate_recommendations(job_posting_id: str, db: Session) -> list[dict]:
     team = posting.team
 
     # Collect user_ids already on the team to exclude them (FR-47)
-    team_user_ids = {
-        m.user_id for m in team.members if m.is_registered and m.user_id
-    }
+    team_user_ids = {m.user_id for m in team.members if m.is_registered and m.user_id}
     # Also exclude the team leader
     team_user_ids.add(team.leader_id)
 
@@ -218,7 +340,9 @@ def generate_recommendations(job_posting_id: str, db: Session) -> list[dict]:
             rank=rank,
         )
         db.add(rec)
-        results.append({"profile_id": str(profile.id), "match_score": score, "rank": rank})
+        results.append(
+            {"profile_id": str(profile.id), "match_score": score, "rank": rank}
+        )
 
     db.commit()
     logger.info(

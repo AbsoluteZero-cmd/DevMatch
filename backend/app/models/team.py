@@ -76,6 +76,14 @@ class TeamMember(Base):
     unregistered_experience_description: Mapped[Optional[str]] = mapped_column(
         Text, nullable=True
     )
+    # Declared unregistered member role and skill label/score (FR-37, FR-38)
+    unregistered_role_name: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    unregistered_skill_level: Mapped[Optional[str]] = mapped_column(
+        String, nullable=True
+    )
+    unregistered_skill_score: Mapped[Optional[int]] = mapped_column(
+        Integer, nullable=True
+    )
     is_registered: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     joined_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 

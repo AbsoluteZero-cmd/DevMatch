@@ -19,6 +19,7 @@ from app.models.developer_application import (
     ApplicationStatus,
     DeveloperApplication,
 )
+from app.services.recommendation_service import refresh_recommendations_for_team
 
 router = APIRouter()
 
@@ -651,6 +652,16 @@ async def join_team(
 
     db.commit()
 
+    # Team composition changed, refresh all open posting recommendations (FR-48)
+    try:
+        refresh_recommendations_for_team(offer.team_id, db)
+    except Exception:
+        import logging
+
+        logging.getLogger(__name__).warning(
+            "Recommendation refresh failed after team join"
+        )
+
     participant = (
         db.query(ChatParticipant)
         .filter(
@@ -712,6 +723,16 @@ async def cancel_join(
         db.delete(team_member)
 
     db.commit()
+
+    # Team composition changed, refresh all open posting recommendations (FR-48)
+    try:
+        refresh_recommendations_for_team(offer.team_id, db)
+    except Exception:
+        import logging
+
+        logging.getLogger(__name__).warning(
+            "Recommendation refresh failed after team leave"
+        )
 
     participant = (
         db.query(ChatParticipant)

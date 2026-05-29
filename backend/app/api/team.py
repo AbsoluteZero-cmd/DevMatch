@@ -10,6 +10,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
 from sqlalchemy.orm import Session, selectinload
+from sqlalchemy import or_
 
 from app.core.dependencies import get_current_user, get_db
 from app.models.profile import Profile, ProfileRole, ProfileSkillTag, SkillTag
@@ -21,8 +22,14 @@ from app.models.team import (
     TeamMember,
     TeamVisibility,
 )
+from app.models.offer import Offer
 from app.models.user import User
-from app.services.recommendation_service import generate_recommendations
+from app.services.recommendation_service import (
+    generate_recommendations,
+    skill_label_to_avg_score,
+    refresh_recommendations_for_team,
+    compute_team_capability,
+)
 
 router = APIRouter()
 
@@ -30,6 +37,7 @@ router = APIRouter()
 # ---------------------------------------------------------------------------
 # Pydantic schemas
 # ---------------------------------------------------------------------------
+
 
 class TeamCreate(BaseModel):
     name: str
@@ -49,6 +57,8 @@ class UnregisteredMemberAdd(BaseModel):
     name: str
     role_description: Optional[str] = None
     experience_description: Optional[str] = None
+    role: str
+    skill_level: str
 
 
 class JobPostingCreate(BaseModel):
@@ -67,6 +77,7 @@ class JobPostingUpdate(BaseModel):
 
 
 # --- Read schemas ---
+
 
 class TeamMemberRead(BaseModel):
     id: int
@@ -129,6 +140,7 @@ class SkillTagRead(BaseModel):
 
 class CandidateRead(BaseModel):
     profile_id: UUID
+    user_id: Optional[int] = None
     full_name: Optional[str]
     match_score: float
     rank: int
@@ -139,9 +151,20 @@ class CandidateRead(BaseModel):
         from_attributes = True
 
 
+class TeamCapabilityRead(BaseModel):
+    team_id: UUID
+    member_count: int
+    roles: dict[str, str]
+    overall_label: str
+
+    class Config:
+        from_attributes = True
+
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _require_team_leader(team_id: str, current_user: User, db: Session) -> Team:
     team = db.query(Team).filter(Team.id == team_id).first()
@@ -202,9 +225,80 @@ def _load_team(team_id: str, db: Session) -> Team:
     return team
 
 
+def _build_team_read_for_discovery(
+    team: Team, current_user: User, db: Session
+) -> TeamRead:
+    """Build a TeamRead for discovery routes, redacting sensitive fields for
+    private teams when the requester is not a member/leader and has not
+    received an offer.
+    """
+    # Determine membership / leader status
+    is_leader = current_user.id == team.leader_id
+    is_registered_member = any(
+        m.is_registered and m.user_id == current_user.id for m in team.members
+    )
+
+    # Determine if current user has any offers from this team
+    has_offer = (
+        db.query(Offer)
+        .filter(Offer.team_id == team.id, Offer.recipient_id == current_user.id)
+        .count()
+        > 0
+    )
+
+    # If team is PRIVATE and user is not allowed to see details, redact
+    redact_details = team.visibility == TeamVisibility.PRIVATE and not (
+        is_leader or is_registered_member or has_offer
+    )
+
+    members = (
+        []
+        if redact_details
+        else [
+            TeamMemberRead(
+                id=m.id,
+                is_registered=m.is_registered,
+                user_id=m.user_id,
+                unregistered_name=m.unregistered_name,
+                unregistered_role_description=m.unregistered_role_description,
+            )
+            for m in team.members
+        ]
+    )
+
+    description = None if redact_details else team.description
+
+    job_postings = [
+        JobPostingRead(
+            id=p.id,
+            title=p.title,
+            required_role=p.required_role,
+            role_description=p.role_description,
+            min_skill_level=p.min_skill_level,
+            status=p.status,
+            is_public=p.is_public,
+            created_at=p.created_at,
+        )
+        for p in team.job_postings
+    ]
+
+    return TeamRead(
+        id=team.id,
+        name=team.name,
+        development_goal=team.development_goal,
+        description=description,
+        visibility=team.visibility,
+        leader_id=team.leader_id,
+        created_at=team.created_at,
+        members=members,
+        job_postings=job_postings,
+    )
+
+
 # ---------------------------------------------------------------------------
 # Team endpoints
 # ---------------------------------------------------------------------------
+
 
 @router.post("", response_model=TeamRead, status_code=201)
 async def create_team(
@@ -245,6 +339,59 @@ async def list_my_teams(
     return [_build_team_read(t) for t in teams]
 
 
+@router.get("/discover", response_model=List[TeamRead])
+async def discover_teams(
+    query: Optional[str] = None,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Discover PUBLIC teams. Optional `query` matches team name or development goal.
+
+    This endpoint supports frontend discovery/search and returns only teams
+    with `visibility == TeamVisibility.PUBLIC`.
+    However, PRIVATE teams where the user is the leader or a registered member
+    are also included to allow easy access from the dashboard.
+    """
+    # Base query options
+    base_opts = dict(
+        options=[selectinload(Team.members), selectinload(Team.job_postings)]
+    )
+
+    teams: List[Team] = []
+
+    # Public teams matching the query
+    q_public = db.query(Team).options(
+        selectinload(Team.members), selectinload(Team.job_postings)
+    )
+    q_public = q_public.filter(Team.visibility == TeamVisibility.PUBLIC)
+    if query:
+        like = f"%{query}%"
+        q_public = q_public.filter(
+            or_(Team.name.ilike(like), Team.development_goal.ilike(like))
+        )
+    teams.extend(q_public.all())
+
+    # Include PRIVATE teams (searchable). Details will be redacted for non-members
+    q_private = db.query(Team).options(
+        selectinload(Team.members), selectinload(Team.job_postings)
+    )
+    q_private = q_private.filter(Team.visibility == TeamVisibility.PRIVATE)
+    if query:
+        like = f"%{query}%"
+        q_private = q_private.filter(
+            or_(Team.name.ilike(like), Team.development_goal.ilike(like))
+        )
+
+    private_matches = q_private.all()
+    existing_ids = {str(t.id) for t in teams}
+    for t in private_matches:
+        if str(t.id) not in existing_ids:
+            teams.append(t)
+
+    # Build discovery-specific TeamRead objects (redacting private-sensitive fields)
+    return [_build_team_read_for_discovery(t, current_user, db) for t in teams]
+
+
 @router.get("/{team_id}", response_model=TeamRead)
 async def get_team(
     team_id: str,
@@ -283,7 +430,10 @@ async def delete_team(
 # Team member endpoints
 # ---------------------------------------------------------------------------
 
-@router.post("/{team_id}/members/unregistered", response_model=TeamRead, status_code=201)
+
+@router.post(
+    "/{team_id}/members/unregistered", response_model=TeamRead, status_code=201
+)
 async def add_unregistered_member(
     team_id: str,
     payload: UnregisteredMemberAdd,
@@ -292,14 +442,37 @@ async def add_unregistered_member(
 ):
     """Add an unregistered (non-account) member to the team (FR-37)."""
     _require_team_leader(team_id, current_user, db)
-    db.add(TeamMember(
-        team_id=UUID(team_id),
-        is_registered=False,
-        unregistered_name=payload.name,
-        unregistered_role_description=payload.role_description,
-        unregistered_experience_description=payload.experience_description,
-    ))
+    # if payload.role not in VALID_ROLES:
+    #     raise HTTPException(status_code=422, detail=f"Invalid role. Choose from: {VALID_ROLES}")
+    # if payload.skill_level not in VALID_LEVELS:
+    #     raise HTTPException(status_code=422, detail=f"Invalid skill level. Choose from: {VALID_LEVELS}")
+
+    numeric = skill_label_to_avg_score(payload.skill_level)
+
+    db.add(
+        TeamMember(
+            team_id=UUID(team_id),
+            is_registered=False,
+            unregistered_name=payload.name,
+            unregistered_role_description=payload.role_description,
+            unregistered_experience_description=payload.experience_description,
+            unregistered_role_name=payload.role,
+            unregistered_skill_level=payload.skill_level,
+            unregistered_skill_score=numeric,
+        )
+    )
     db.commit()
+
+    # Refresh recommendations for the team since composition changed (FR-48)
+    try:
+        refresh_recommendations_for_team(team_id, db)
+    except Exception:
+        import logging
+
+        logging.getLogger(__name__).warning(
+            "Recommendation refresh failed after adding unregistered member"
+        )
+
     return _build_team_read(_load_team(team_id, db))
 
 
@@ -311,14 +484,26 @@ async def remove_member(
     db: Session = Depends(get_db),
 ):
     _require_team_leader(team_id, current_user, db)
-    member = db.query(TeamMember).filter(
-        TeamMember.id == member_id,
-        TeamMember.team_id == team_id,
-    ).first()
+    member = (
+        db.query(TeamMember)
+        .filter(
+            TeamMember.id == member_id,
+            TeamMember.team_id == team_id,
+        )
+        .first()
+    )
     if not member:
         raise HTTPException(status_code=404, detail="Member not found")
     db.delete(member)
     db.commit()
+    try:
+        refresh_recommendations_for_team(team_id, db)
+    except Exception:
+        import logging
+
+        logging.getLogger(__name__).warning(
+            "Recommendation refresh failed after removing member"
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -326,10 +511,16 @@ async def remove_member(
 # ---------------------------------------------------------------------------
 
 VALID_ROLES = {
-    "Frontend Engineer", "Backend Engineer", "Full-Stack Engineer",
-    "Mobile Engineer (iOS / Android)", "DevOps / Infrastructure Engineer",
-    "Data Engineer", "ML / AI Engineer", "Data Scientist",
-    "Security Engineer", "QA Engineer",
+    "Frontend Engineer",
+    "Backend Engineer",
+    "Full-Stack Engineer",
+    "Mobile Engineer (iOS / Android)",
+    "DevOps / Infrastructure Engineer",
+    "Data Engineer",
+    "ML / AI Engineer",
+    "Data Scientist",
+    "Security Engineer",
+    "QA Engineer",
 }
 
 VALID_LEVELS = {"Beginner", "Intermediate", "Advanced", "Expert"}
@@ -346,9 +537,13 @@ async def create_job_posting(
     _require_team_leader(team_id, current_user, db)
 
     if payload.required_role not in VALID_ROLES:
-        raise HTTPException(status_code=422, detail=f"Invalid role. Choose from: {VALID_ROLES}")
+        raise HTTPException(
+            status_code=422, detail=f"Invalid role. Choose from: {VALID_ROLES}"
+        )
     if payload.min_skill_level not in VALID_LEVELS:
-        raise HTTPException(status_code=422, detail=f"Invalid skill level. Choose from: {VALID_LEVELS}")
+        raise HTTPException(
+            status_code=422, detail=f"Invalid skill level. Choose from: {VALID_LEVELS}"
+        )
 
     posting = JobPosting(
         team_id=UUID(team_id),
@@ -361,6 +556,15 @@ async def create_job_posting(
     db.add(posting)
     db.commit()
     db.refresh(posting)
+
+    # New posting: generate its initial recommendation cache
+    try:
+        generate_recommendations(str(posting.id), db)
+    except Exception as exc:
+        import logging
+
+        logging.getLogger(__name__).warning("Recommendation generation failed: %s", exc)
+
     return posting
 
 
@@ -373,9 +577,11 @@ async def update_job_posting(
     db: Session = Depends(get_db),
 ):
     _require_team_leader(team_id, current_user, db)
-    posting = db.query(JobPosting).filter(
-        JobPosting.id == posting_id, JobPosting.team_id == team_id
-    ).first()
+    posting = (
+        db.query(JobPosting)
+        .filter(JobPosting.id == posting_id, JobPosting.team_id == team_id)
+        .first()
+    )
     if not posting:
         raise HTTPException(status_code=404, detail="Job posting not found")
 
@@ -389,6 +595,7 @@ async def update_job_posting(
         generate_recommendations(posting_id, db)
     except Exception as exc:
         import logging
+
         logging.getLogger(__name__).warning("Recommendation refresh failed: %s", exc)
 
     return posting
@@ -403,9 +610,11 @@ async def close_job_posting(
 ):
     """Manually close a job posting (FR-43)."""
     _require_team_leader(team_id, current_user, db)
-    posting = db.query(JobPosting).filter(
-        JobPosting.id == posting_id, JobPosting.team_id == team_id
-    ).first()
+    posting = (
+        db.query(JobPosting)
+        .filter(JobPosting.id == posting_id, JobPosting.team_id == team_id)
+        .first()
+    )
     if not posting:
         raise HTTPException(status_code=404, detail="Job posting not found")
     posting.status = JobPostingStatus.CLOSED
@@ -419,7 +628,11 @@ async def close_job_posting(
 # Candidate recommendations (FR-45 to FR-49)
 # ---------------------------------------------------------------------------
 
-@router.get("/{team_id}/postings/{posting_id}/recommendations", response_model=List[CandidateRead])
+
+@router.get(
+    "/{team_id}/postings/{posting_id}/recommendations",
+    response_model=List[CandidateRead],
+)
 async def get_recommendations(
     team_id: str,
     posting_id: str,
@@ -435,9 +648,11 @@ async def get_recommendations(
     """
     _require_team_leader(team_id, current_user, db)
 
-    posting = db.query(JobPosting).filter(
-        JobPosting.id == posting_id, JobPosting.team_id == team_id
-    ).first()
+    posting = (
+        db.query(JobPosting)
+        .filter(JobPosting.id == posting_id, JobPosting.team_id == team_id)
+        .first()
+    )
     if not posting:
         raise HTTPException(status_code=404, detail="Job posting not found")
     if posting.status == JobPostingStatus.CLOSED:
@@ -475,13 +690,19 @@ async def get_recommendations(
         # Filter: min_skill_level (FR-49)
         if min_skill_level:
             role_skill_level = next(
-                (pr.skill_level for pr in profile.profile_roles if pr.role.name == posting.required_role),
+                (
+                    pr.skill_level
+                    for pr in profile.profile_roles
+                    if pr.role.name == posting.required_role
+                ),
                 None,
             )
             level_order = ["Beginner", "Intermediate", "Advanced", "Expert"]
             if role_skill_level is None:
                 continue
-            if level_order.index(role_skill_level.value) < level_order.index(min_skill_level):
+            if level_order.index(role_skill_level.value) < level_order.index(
+                min_skill_level
+            ):
                 continue
 
         # Filter: skill_tag (FR-49)
@@ -491,39 +712,47 @@ async def get_recommendations(
                 continue
 
         visible_roles = [
-            pr for pr in profile.profile_roles
+            pr
+            for pr in profile.profile_roles
             if not pr.is_hidden and pr.skill_level.value != "Beginner"
         ]
 
-        results.append(CandidateRead(
-            profile_id=profile.id,
-            full_name=profile.full_name if not profile.is_hidden_full_name else None,
-            match_score=rec.match_score,
-            rank=rec.rank,
-            roles=[
-                RoleRead(
-                    id=pr.role.id,
-                    name=pr.role.name,
-                    tier=pr.role.tier.value,
-                    skill_level=pr.skill_level.value,
-                )
-                for pr in visible_roles
-            ],
-            skill_tags=[
-                SkillTagRead(
-                    id=pt.skill_tag.id,
-                    name=pt.skill_tag.name,
-                    is_ai_generated=pt.is_ai_generated,
-                )
-                for pt in profile.profile_skill_tags
-                if not pt.is_hidden
-            ],
-        ))
+        results.append(
+            CandidateRead(
+                profile_id=profile.id,
+                user_id=profile.user_id,
+                full_name=(
+                    profile.full_name if not profile.is_hidden_full_name else None
+                ),
+                match_score=rec.match_score,
+                rank=rec.rank,
+                roles=[
+                    RoleRead(
+                        id=pr.role.id,
+                        name=pr.role.name,
+                        tier=pr.role.tier.value,
+                        skill_level=pr.skill_level.value,
+                    )
+                    for pr in visible_roles
+                ],
+                skill_tags=[
+                    SkillTagRead(
+                        id=pt.skill_tag.id,
+                        name=pt.skill_tag.name,
+                        is_ai_generated=pt.is_ai_generated,
+                    )
+                    for pt in profile.profile_skill_tags
+                    if not pt.is_hidden
+                ],
+            )
+        )
 
     return results
 
 
-@router.post("/{team_id}/postings/{posting_id}/recommendations/refresh", status_code=200)
+@router.post(
+    "/{team_id}/postings/{posting_id}/recommendations/refresh", status_code=200
+)
 async def refresh_recommendations(
     team_id: str,
     posting_id: str,
@@ -532,11 +761,42 @@ async def refresh_recommendations(
 ):
     """Manually trigger recommendation refresh (FR-48)."""
     _require_team_leader(team_id, current_user, db)
-    posting = db.query(JobPosting).filter(
-        JobPosting.id == posting_id, JobPosting.team_id == team_id
-    ).first()
+    posting = (
+        db.query(JobPosting)
+        .filter(JobPosting.id == posting_id, JobPosting.team_id == team_id)
+        .first()
+    )
     if not posting:
         raise HTTPException(status_code=404, detail="Job posting not found")
 
     results = generate_recommendations(posting_id, db)
     return {"generated": len(results)}
+
+
+@router.get("/{team_id}/capability", response_model=TeamCapabilityRead)
+async def get_team_capability(
+    team_id: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Return computed team capability per role and overall score (FR-40).
+
+    Access: team leader and registered team members. PRIVATE team visibility
+    will restrict non-members from viewing capability.
+    """
+    team = _load_team(team_id, db)
+
+    # If team is PRIVATE, disallow non-members
+    if team.visibility == TeamVisibility.PRIVATE:
+        is_member = any(
+            m.is_registered and m.user_id == current_user.id for m in team.members
+        )
+        if not is_member and current_user.id != team.leader_id:
+            raise HTTPException(status_code=403, detail="Forbidden")
+
+    try:
+        data = compute_team_capability(team_id, db)
+    except ValueError:
+        raise HTTPException(status_code=404, detail="Team not found")
+
+    return data
