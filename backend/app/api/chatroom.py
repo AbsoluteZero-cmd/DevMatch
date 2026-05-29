@@ -171,13 +171,13 @@ async def get_room_messages(
     messages = (
         db.query(Message)
         .filter(Message.room_id == room_id)
-        .order_by(Message.created_at.desc())
+        .order_by(Message.created_at.asc())
         .offset(skip)
         .limit(limit)
         .all()
     )
 
-    return messages[::-1]
+    return messages
 
 
 @router.post("/rooms/{room_id}/messages", response_model=MessageResponse)
@@ -354,6 +354,20 @@ async def send_offer(
             status_code=403, detail="You can only send offers for teams you lead."
         )
 
+    posting = (
+        db.query(JobPosting)
+        .filter(
+            JobPosting.id == offer_data.job_posting_id,
+            JobPosting.team_id == offer_data.team_id,
+        )
+        .first()
+    )
+    if not posting:
+        raise HTTPException(
+            status_code=404,
+            detail="Job posting not found for this team.",
+        )
+
     open_offers_count = (
         db.query(Offer)
         .filter(
@@ -368,20 +382,6 @@ async def send_offer(
         raise HTTPException(
             status_code=400,
             detail="Cannot send offer: Your team already has 20 open offers. Please wait for some offers to be accepted or declined before sending more.",
-        )
-
-    posting = (
-        db.query(JobPosting)
-        .filter(
-            JobPosting.id == offer_data.job_posting_id,
-            JobPosting.team_id == offer_data.team_id,
-        )
-        .first()
-    )
-    if not posting:
-        raise HTTPException(
-            status_code=404,
-            detail="Job posting not found for this team.",
         )
 
     # FR-57:
@@ -509,7 +509,11 @@ async def accept_chat_request(
         .first()
     )
 
+    if not offer:
+        raise HTTPException(status_code=404, detail="Offer not found")
+
     offer.status = OfferStatus.INTERESTED
+    offer.responded_at = datetime.utcnow()
     db.commit()
 
     await manager.broadcast_to_users(
@@ -561,6 +565,7 @@ async def decline_chat(
         raise HTTPException(status_code=404, detail="Offer not found")
 
     offer.status = OfferStatus.DECLINED
+    offer.responded_at = datetime.utcnow()
     db.commit()
 
     await manager.broadcast_to_users(
@@ -591,6 +596,7 @@ async def join_team(
         raise HTTPException(status_code=404, detail="Offer not found")
 
     offer.status = OfferStatus.ACCEPTED
+    offer.responded_at = datetime.utcnow()
 
     # FR-55-a: When an offer is accepted, automatically add developer to the team
     team_member = (
@@ -684,6 +690,7 @@ async def cancel_join(
 
     # Record the cancellation
     offer.status = OfferStatus.CANCELLED
+    offer.responded_at = datetime.utcnow()
 
     # FR-56 Re-open job posting
     if offer.job_posting_id:

@@ -154,7 +154,7 @@ def get_application(
             # FR-63: Activate DM communication upon reviewing application
             # Create a new chat room (or fetch existing if your schema handles 1-on-1 uniqueness)
             new_chat = ChatRoom(
-                name=f"Application {application.id} Chat",
+                name=f"Application {application.job_posting.title} Chat",
                 created_by_id=current_user.id,
                 description=f"Chat between team leader and applicant for application {application.id}",
             )
@@ -163,12 +163,12 @@ def get_application(
 
             # Add Team Leader and Applicant to the chat
             tl_participant = ChatParticipant(
-                chat_room_id=new_chat.id,
+                room_id=new_chat.id,
                 user_id=current_user.id,
                 status=ChatParticipantStatus.ACCEPTED,
             )
             dev_participant = ChatParticipant(
-                chat_room_id=new_chat.id,
+                room_id=new_chat.id,
                 user_id=application.applicant_id,
                 status=ChatParticipantStatus.ACCEPTED,
             )
@@ -183,7 +183,7 @@ def get_application(
 @router.post(
     "/applications/{application_id}/decline", response_model=DeveloperApplicationOut
 )
-def decline_application(
+async def decline_application(
     application_id: int,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
@@ -219,6 +219,15 @@ def decline_application(
     db.commit()
     db.refresh(application)
 
+    await manager.broadcast_to_users(
+        [application.applicant_id],
+        {
+            "type": "application_update",
+            "application_id": application.id,
+            "status": application.status.value,
+        },
+    )
+
     return application
 
 
@@ -232,7 +241,7 @@ class OfferCreate(BaseModel):
 @router.post(
     "/applications/{application_id}/accept", response_model=DeveloperApplicationOut
 )
-def accept_application(
+async def accept_application(
     application_id: int,
     offer_data: OfferCreate,  # Added payload to capture FR-50 requirements
     db: Session = Depends(get_db),
@@ -250,6 +259,14 @@ def accept_application(
     job_posting = (
         db.query(JobPosting).filter(JobPosting.id == application.job_posting_id).first()
     )
+
+    if not job_posting:
+        raise HTTPException(status_code=404, detail="Associated job posting not found")
+
+    if job_posting.status != JobPostingStatus.OPEN:
+        raise HTTPException(
+            status_code=400, detail="Job posting is not open for accepting applications"
+        )
 
     if not (
         current_user.role in [UserRole.ADMIN, UserRole.TEAM_LEADER]
@@ -279,10 +296,21 @@ def accept_application(
             status_code=400, detail="Team has reached the maximum of 20 open offers."
         )
 
+    previous_chat = (
+        db.query(ChatRoom)
+        .join(ChatParticipant, ChatParticipant.chat_room_id == ChatRoom.id)
+        .filter(
+            ChatParticipant.user_id == application.applicant_id,
+            ChatRoom.name == f"Application {application.job_posting.title} Chat",
+        )
+        .first()
+    )
+
     # FR-50 FR-51: Create the formal offer valid for 7 days
     new_offer = Offer(
         team_id=job_posting.team_id,
-        developer_id=application.applicant_id,
+        sender_id=current_user.id,
+        recipient_id=application.applicant_id,
         job_posting_id=job_posting.id,
         team_introduction=offer_data.team_introduction,
         proposed_role=offer_data.proposed_role,
@@ -290,6 +318,9 @@ def accept_application(
         compensation_details=offer_data.compensation_details,
         status=OfferStatus.PENDING,
         expires_at=datetime.utcnow() + timedelta(days=7),  # FR-51 7 day validity
+        chat_room_id=(
+            previous_chat.id if previous_chat else None
+        ),  # use the same chat room created for the application (FR-63)
     )
 
     application.status = ApplicationStatus.ACCEPTED
@@ -297,5 +328,14 @@ def accept_application(
     db.add(new_offer)
     db.commit()
     db.refresh(application)
+
+    await manager.broadcast_to_users(
+        [application.applicant_id],
+        {
+            "type": "application_update",
+            "application_id": application.id,
+            "status": application.status.value,
+        },
+    )
 
     return application

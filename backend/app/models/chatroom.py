@@ -1,14 +1,12 @@
 from sqlalchemy import (
     ForeignKey,
-    ForeignKey,
-    Integer,
     Integer,
     String,
     Boolean,
     DateTime,
     Text,
 )
-from sqlalchemy.orm import Mapped, mapped_column, relationship, relationship
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 from datetime import datetime
 from app.db.base import Base
 
