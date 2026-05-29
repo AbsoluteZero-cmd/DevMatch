@@ -2,6 +2,7 @@
 AI Analysis endpoint — DevMatch
 POST /profile/analyze   → triggers LLM analysis for the current user's profile
 GET  /profile/analyze/status → returns last_ai_analysis timestamp
+Scheduled re-analysis runs daily at 3 AM UTC from the application lifecycle task.
 """
 
 from datetime import timezone
@@ -10,9 +11,10 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from app.core.dependencies import get_current_user, get_db
+from app.db.session import SessionLocal
 from app.models.profile import Profile
-from app.models.user import User
-from app.services.ai_service import analyse_profile
+from app.models.user import User, UserRole
+from app.services.ai_service import analyse_all_profiles, analyse_profile
 
 router = APIRouter()
 
@@ -36,9 +38,18 @@ def _get_profile_or_404(current_user: User, db: Session) -> Profile:
     return profile
 
 
+def _require_admin(current_user: User) -> None:
+    if current_user.role != UserRole.ADMIN:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Admin access required.",
+        )
+
+
 # ---------------------------------------------------------------------------
 # POST /profile/analyze
 # ---------------------------------------------------------------------------
+
 
 @router.post(
     "/analyze",
@@ -48,7 +59,7 @@ def _get_profile_or_404(current_user: User, db: Session) -> Profile:
     description=(
         "Runs the LLM-based skill scoring pipeline for the authenticated developer. "
         "Analysis runs in the background; poll /analyze/status to check completion. "
-        "Re-triggers automatically whenever the profile is updated (FR-34)."
+        "The production refresh is also run daily by a scheduled 3 AM UTC job."
     ),
 )
 async def trigger_analysis(
@@ -68,6 +79,30 @@ async def trigger_analysis(
     )
 
 
+@router.post(
+    "/analyze/manual",
+    response_model=AnalyzeResponse,
+    status_code=status.HTTP_202_ACCEPTED,
+    summary="Trigger scheduled AI re-analysis manually",
+    description=(
+        "Runs the same full-profile AI re-analysis job used by the daily 3 AM UTC "
+        "scheduler. Admin-only."
+    ),
+)
+async def trigger_manual_analysis(
+    background_tasks: BackgroundTasks,
+    current_user: User = Depends(get_current_user),
+):
+    _require_admin(current_user)
+
+    background_tasks.add_task(_run_batch_analysis_task)
+
+    return AnalyzeResponse(
+        message="Manual analysis started. Results will be available shortly.",
+        profile_id="all",
+    )
+
+
 def _run_analysis_task(profile_id: str) -> None:
     """
     Background task wrapper. Opens its own DB session because FastAPI's
@@ -81,8 +116,25 @@ def _run_analysis_task(profile_id: str) -> None:
     try:
         analyse_profile(profile_id, db)
     except Exception as exc:
-        logger.error("Background AI analysis failed for profile %s: %s", profile_id, exc)
+        logger.error(
+            "Background AI analysis failed for profile %s: %s", profile_id, exc
+        )
         # Future: push to a retry queue and notify user (NFR-08)
+    finally:
+        db.close()
+
+
+def _run_batch_analysis_task() -> None:
+    """Run the full-profile AI analysis job in the background."""
+    import logging
+
+    logger = logging.getLogger(__name__)
+    db = SessionLocal()
+    try:
+        analyse_all_profiles(db)
+    except Exception as exc:
+        logger.error("Manual AI batch analysis failed: %s", exc)
+        # Future: push to a retry queue and notify admins.
     finally:
         db.close()
 
@@ -90,6 +142,7 @@ def _run_analysis_task(profile_id: str) -> None:
 # ---------------------------------------------------------------------------
 # POST /profile/analyze/sync  (blocking — for onboarding flow)
 # ---------------------------------------------------------------------------
+
 
 @router.post(
     "/analyze/sync",
@@ -124,6 +177,7 @@ async def trigger_analysis_sync(
 # ---------------------------------------------------------------------------
 # GET /profile/analyze/status
 # ---------------------------------------------------------------------------
+
 
 @router.get(
     "/analyze/status",

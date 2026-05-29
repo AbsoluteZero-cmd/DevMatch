@@ -1,19 +1,21 @@
 """
 AI Service — DevMatch
-Handles LLM-based profile analysis: assigns Skill Scores across 10 roles
-and suggests skill tags. Called on profile creation and on every profile update.
+Handles LLM-based profile analysis: assigns Skill Scores across 10 roles,
+suggests skill tags, and supports the scheduled daily re-analysis job.
 """
 
+from collections import Counter
 import json
 import logging
 import time
 from typing import Optional
 
 import httpx
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
 from app.core.config import settings
 from app.models.profile import (
+    ExternalURLType,
     Profile,
     ProfileRole,
     ProfileSkillTag,
@@ -56,6 +58,7 @@ RETRY_BACKOFF_BASE = 2  # seconds
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _score_to_level(score: int) -> SkillLevel:
     for (low, high), level in SKILL_LEVEL_MAP.items():
         if low <= score <= high:
@@ -93,6 +96,50 @@ def _build_prompt(profile: Profile) -> str:
     # --- external links ---
     link_lines = [u.url_str for u in profile.external_urls]
 
+    github_lines = []
+    huggingface_lines = []
+
+    for external_url in profile.external_urls:
+        if external_url.is_hidden:
+            continue
+
+        if external_url.url_type == ExternalURLType.GITHUB:
+            repo_list = external_url.parsed_repo_list or []
+            repo_count = len(repo_list)
+            language_counts = Counter(
+                repo.get("top_language")
+                for repo in repo_list
+                if repo.get("top_language")
+            )
+            primary_languages = (
+                ", ".join(
+                    f"{language} ({count})"
+                    for language, count in language_counts.most_common(5)
+                )
+                or "N/A"
+            )
+            github_lines.append(
+                "- GitHub URL: {url}\n"
+                "  Repo count: {repo_count}\n"
+                "  Commit count (last 12 months): {commit_count}\n"
+                "  Primary languages: {languages}".format(
+                    url=external_url.url_str,
+                    repo_count=repo_count,
+                    commit_count=external_url.parsed_commit_count or 0,
+                    languages=primary_languages,
+                )
+            )
+        elif external_url.url_type == ExternalURLType.HUGGING_FACE:
+            huggingface_lines.append(
+                "- HuggingFace URL: {url}\n"
+                "  Published model count: {model_count}\n"
+                "  Dataset count: {dataset_count}".format(
+                    url=external_url.url_str,
+                    model_count=external_url.parsed_hf_model_count or 0,
+                    dataset_count=external_url.parsed_hf_dataset_count or 0,
+                )
+            )
+
     # --- skill tags ---
     tag_lines = [pt.skill_tag.name for pt in profile.profile_skill_tags]
 
@@ -129,6 +176,12 @@ Developer Profile:
 - Education: {"; ".join(education_lines) or "N/A"}
 - External links: {", ".join(link_lines) or "N/A"}
 - Self-declared skill tags: {", ".join(tag_lines) or "N/A"}
+
+GitHub evidence:
+{chr(10).join(github_lines) or "N/A"}
+
+HuggingFace evidence:
+{chr(10).join(huggingface_lines) or "N/A"}
 
 Project History:
 {chr(10).join(project_lines) or "No projects listed."}
@@ -182,21 +235,23 @@ def _call_llm(prompt: str) -> dict:
                 return json.loads(text)
         except Exception as exc:
             last_error = exc
-            wait = RETRY_BACKOFF_BASE ** attempt
+            wait = RETRY_BACKOFF_BASE**attempt
             logger.warning(
                 "Groq API attempt %d/%d failed: %s. Retrying in %ds…",
-                attempt, MAX_RETRIES, exc, wait,
+                attempt,
+                MAX_RETRIES,
+                exc,
+                wait,
             )
             time.sleep(wait)
 
-    raise RuntimeError(
-        f"Groq API failed after {MAX_RETRIES} attempts: {last_error}"
-    )
+    raise RuntimeError(f"Groq API failed after {MAX_RETRIES} attempts: {last_error}")
 
 
 # ---------------------------------------------------------------------------
 # Public interface
 # ---------------------------------------------------------------------------
+
 
 def analyse_profile(profile_id: str, db: Session) -> None:
     """
@@ -215,6 +270,15 @@ def analyse_profile(profile_id: str, db: Session) -> None:
     # Load profile with all relationships
     profile = (
         db.query(Profile)
+        .options(
+            selectinload(Profile.education_entries),
+            selectinload(Profile.project_history_entries),
+            selectinload(Profile.external_urls),
+            selectinload(Profile.profile_roles).selectinload(ProfileRole.role),
+            selectinload(Profile.profile_skill_tags).selectinload(
+                ProfileSkillTag.skill_tag
+            ),
+        )
         .filter(Profile.id == profile_id)
         .first()
     )
@@ -264,10 +328,7 @@ def analyse_profile(profile_id: str, db: Session) -> None:
 
     # --- Upsert AI-suggested skill tags ---
     suggested_tags: list = result.get("suggested_tags", [])
-    existing_tag_names = {
-        pt.skill_tag.name
-        for pt in profile.profile_skill_tags
-    }
+    existing_tag_names = {pt.skill_tag.name for pt in profile.profile_skill_tags}
 
     for tag_name in suggested_tags:
         tag_name = tag_name.strip()
@@ -281,7 +342,6 @@ def analyse_profile(profile_id: str, db: Session) -> None:
             db.add(tag)
             db.flush()  # get tag.id
 
-        from app.models.profile import ProfileSkillTag
         db.add(
             ProfileSkillTag(
                 profile_id=profile.id,
@@ -296,3 +356,17 @@ def analyse_profile(profile_id: str, db: Session) -> None:
 
     db.commit()
     logger.info("AI analysis complete for profile %s", profile_id)
+
+
+def analyse_all_profiles(db: Session) -> None:
+    """Run the scheduled AI re-analysis for every stored developer profile."""
+
+    profile_ids = [profile_id for (profile_id,) in db.query(Profile.id).all()]
+    for profile_id in profile_ids:
+        try:
+            analyse_profile(str(profile_id), db)
+        except Exception:
+            logger.exception(
+                "Scheduled AI analysis failed for profile %s",
+                profile_id,
+            )
