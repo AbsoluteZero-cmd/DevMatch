@@ -3,6 +3,8 @@ import {
 	splitTechnologiesUsed,
 	extractGitHubUsername,
 	extractHuggingFaceUsername,
+	STANDARDIZED_ROLES,
+	LEVEL_ORDER,
 } from "@/lib/profile-types";
 
 describe("splitTechnologiesUsed", () => {
@@ -108,5 +110,51 @@ describe("extractHuggingFaceUsername", () => {
 
 	it("returns null for undefined", () => {
 		expect(extractHuggingFaceUsername(undefined)).toBeNull();
+	});
+});
+
+// FR-29: Standardized roles must match SRS specification
+describe("STANDARDIZED_ROLES", () => {
+	it("contains exactly 10 roles", () => {
+		expect(STANDARDIZED_ROLES).toHaveLength(10);
+	});
+
+	it("matches SRS specification role names", () => {
+		const expected = [
+			"Frontend Engineer",
+			"Backend Engineer",
+			"Full-Stack Engineer",
+			"Mobile Engineer (iOS / Android)",
+			"DevOps / Infrastructure Engineer",
+			"Data Engineer",
+			"ML / AI Engineer",
+			"Data Scientist",
+			"Security Engineer",
+			"QA Engineer",
+		];
+		expect([...STANDARDIZED_ROLES]).toEqual(expected);
+	});
+
+	it("contains 6 Core and 4 Specialized roles", () => {
+		const coreRoles = STANDARDIZED_ROLES.slice(0, 6);
+		const specializedRoles = STANDARDIZED_ROLES.slice(6);
+		expect(coreRoles).toHaveLength(6);
+		expect(specializedRoles).toHaveLength(4);
+	});
+});
+
+// FR-30: Skill level ordering
+describe("LEVEL_ORDER", () => {
+	it("contains exactly 4 levels", () => {
+		expect(LEVEL_ORDER).toHaveLength(4);
+	});
+
+	it("orders levels from lowest to highest", () => {
+		expect([...LEVEL_ORDER]).toEqual([
+			"Beginner",
+			"Intermediate",
+			"Advanced",
+			"Expert",
+		]);
 	});
 });
