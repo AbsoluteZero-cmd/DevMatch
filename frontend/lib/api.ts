@@ -277,6 +277,31 @@ export async function removeSkillTag(tagId: number): Promise<void> {
 	});
 }
 
+export interface AnalyzeResponse {
+	message: string;
+	profile_id: string;
+}
+
+export interface AnalysisStatusResponse {
+	last_ai_analysis: string | null;
+}
+
+export async function triggerAnalysis(): Promise<AnalyzeResponse> {
+	return fetchProtectedApi<AnalyzeResponse>('/profile/analyze', {
+		method: 'POST',
+	});
+}
+
+export async function triggerAnalysisSync(): Promise<AnalyzeResponse> {
+	return fetchProtectedApi<AnalyzeResponse>('/profile/analyze/sync', {
+		method: 'POST',
+	});
+}
+
+export async function getAnalysisStatus(): Promise<AnalysisStatusResponse> {
+	return fetchProtectedApi<AnalysisStatusResponse>('/profile/analyze/status');
+}
+
 export async function logoutApi(): Promise<void> {
 	try {
 		await fetchProtectedApi<void>('/auth/logout', { method: 'POST' });

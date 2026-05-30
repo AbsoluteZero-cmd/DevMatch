@@ -15,9 +15,11 @@ import {
   deleteEducation,
   deleteLink,
   deleteProject,
+  getAnalysisStatus,
   getMyProfile,
   getOAuthAuthorizationUrl,
   patchMyProfile,
+  triggerAnalysis,
   updateEducation,
   updateLink,
   updateProject,
@@ -31,6 +33,7 @@ import type {
 } from "@/lib/profile-types";
 import { splitTechnologiesUsed } from "@/lib/profile-types";
 import { useEffect, useState } from "react";
+import { Brain, Loader2, RefreshCw } from "lucide-react";
 
 interface ProfileActionResponse {
   message: string;
@@ -129,6 +132,9 @@ export default function ProfilePage() {
     age: "",
     years_experience: "",
   });
+  const [lastAnalysis, setLastAnalysis] = useState<string | null>(null);
+  const [analysisLoading, setAnalysisLoading] = useState(false);
+  const [analysisMessage, setAnalysisMessage] = useState<string | null>(null);
 
   const logout = () => {
     auth.logout();
@@ -179,7 +185,19 @@ export default function ProfilePage() {
       }
     };
 
+    const loadAnalysisStatus = async () => {
+      try {
+        const status = await getAnalysisStatus();
+        if (isActive) {
+          setLastAnalysis(status.last_ai_analysis);
+        }
+      } catch {
+        // Silently ignore — analysis status is non-critical
+      }
+    };
+
     loadProfile();
+    loadAnalysisStatus();
 
     return () => {
       isActive = false;
@@ -466,6 +484,60 @@ export default function ProfilePage() {
         </div>
 
         <RolesSection roles={profile?.roles ?? []} />
+
+        <div className="rounded-xl border border-border bg-card p-6">
+          <div className="flex items-center gap-3">
+            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-muted">
+              <Brain className="h-5 w-5 text-foreground" />
+            </div>
+            <div>
+              <p className="text-sm font-semibold text-foreground">
+                AI Role Analysis
+              </p>
+              <p className="text-xs text-muted-foreground">
+                {lastAnalysis
+                  ? `Last analyzed: ${new Date(lastAnalysis).toLocaleString()}`
+                  : "Your profile has not been analyzed yet."}
+              </p>
+            </div>
+          </div>
+
+          {analysisMessage && (
+            <p className="mt-3 text-sm text-muted-foreground">
+              {analysisMessage}
+            </p>
+          )}
+
+          <button
+            className="mt-4 flex items-center gap-2 rounded-md border px-3 py-1 text-sm disabled:opacity-50"
+            disabled={analysisLoading}
+            onClick={async () => {
+              setAnalysisLoading(true);
+              setAnalysisMessage(null);
+              try {
+                const response = await triggerAnalysis();
+                setAnalysisMessage(
+                  response.message || "Analysis started. Results will appear shortly.",
+                );
+              } catch (error) {
+                setAnalysisMessage(
+                  error instanceof Error
+                    ? error.message
+                    : "Failed to start analysis.",
+                );
+              } finally {
+                setAnalysisLoading(false);
+              }
+            }}
+          >
+            {analysisLoading ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <RefreshCw className="h-4 w-4" />
+            )}
+            {analysisLoading ? "Analyzing..." : "Re-analyze Profile"}
+          </button>
+        </div>
 
         <ProjectsSection
           projects={projects}

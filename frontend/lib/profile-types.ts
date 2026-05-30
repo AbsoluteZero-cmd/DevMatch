@@ -32,6 +32,15 @@ export interface ProjectHistoryRead {
 	description: string | null;
 }
 
+export interface GitHubRepoRead {
+	name: string;
+	html_url: string;
+	description: string | null;
+	stargazers_count: number;
+	forks_count: number;
+	top_language: string | null;
+}
+
 export interface ExternalURLRead {
 	id: number;
 	url_type: ExternalURLType;
@@ -40,6 +49,10 @@ export interface ExternalURLRead {
 	parse_status: ExternalURLParseStatus;
 	parse_message: string | null;
 	parsed_at: string | null;
+	parsed_repo_list: GitHubRepoRead[] | null;
+	parsed_commit_count: number | null;
+	parsed_hf_model_count: number | null;
+	parsed_hf_dataset_count: number | null;
 }
 
 export interface RoleRead {
