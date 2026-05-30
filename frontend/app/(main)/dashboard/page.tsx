@@ -200,6 +200,7 @@ export default function DashboardPage() {
   const [memberName, setMemberName] = useState("")
   const [memberRole, setMemberRole] = useState("")
   const [memberLevel, setMemberLevel] = useState("Intermediate")
+  const [memberExperience, setMemberExperience] = useState("")
   const [membersSubmitting, setMembersSubmitting] = useState(false)
   const [membersError, setMembersError] = useState<string | null>(null)
 
@@ -504,12 +505,13 @@ export default function DashboardPage() {
         name: memberName.trim(),
         role: memberRole || "Contributor",
         role_description: memberRole || undefined,
-        experience_description: undefined,
+        experience_description: memberExperience.trim() || undefined,
         skill_level: memberLevel,
       })
       await refreshTeams()
       setMemberName("")
       setMemberRole("")
+      setMemberExperience("")
     } catch (err) {
       setMembersError(err instanceof Error ? err.message : "Failed to add member")
     } finally {
@@ -1152,6 +1154,15 @@ export default function DashboardPage() {
               <div className="space-y-1.5">
                 <Label>Role</Label>
                 <Input value={memberRole} onChange={(e) => setMemberRole(e.target.value)} />
+              </div>
+              <div className="space-y-1.5">
+                <Label>Experience description</Label>
+                <Textarea
+                  placeholder="Brief description of their experience"
+                  rows={3}
+                  value={memberExperience}
+                  onChange={(e) => setMemberExperience(e.target.value)}
+                />
               </div>
               <div className="space-y-1.5">
                 <Label>Skill level</Label>
