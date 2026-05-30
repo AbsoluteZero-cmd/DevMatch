@@ -33,7 +33,7 @@ import type {
 } from "@/lib/profile-types";
 import { splitTechnologiesUsed } from "@/lib/profile-types";
 import { useEffect, useState } from "react";
-import { Brain, Loader2, RefreshCw } from "lucide-react";
+import { Brain, Eye, EyeOff, Loader2, RefreshCw } from "lucide-react";
 
 interface ProfileActionResponse {
   message: string;
@@ -105,6 +105,7 @@ function buildProjectCards(profile: ProfileRead): ProfileProjectCard[] {
       ([project.role, project.duration].filter(Boolean).join(" · ") ||
         "No project description provided."),
     technologies: splitTechnologiesUsed(project.technologies_used),
+    is_hidden: project.is_hidden,
   }));
 }
 
@@ -203,6 +204,17 @@ export default function ProfilePage() {
       isActive = false;
     };
   }, [auth.isLoading, user]);
+
+  // FR-34: Auto-trigger re-analysis after profile changes (fire-and-forget)
+  const triggerReAnalysis = async () => {
+    try {
+      await triggerAnalysis();
+      const status = await getAnalysisStatus();
+      setLastAnalysis(status.last_ai_analysis);
+    } catch {
+      // Non-blocking — analysis failure should not break profile save
+    }
+  };
 
   const displayName = profile?.full_name ?? user?.full_name ?? "Your profile";
   const displaySummary = "";
@@ -321,6 +333,7 @@ export default function ProfilePage() {
                       const updated =
                         await patchMyProfile<ProfileRead>(payload);
                       setProfile(updated);
+                      triggerReAnalysis();
                     } catch (error) {
                       console.error(error);
                       alert("Failed to save profile");
@@ -352,7 +365,28 @@ export default function ProfilePage() {
 
           <div className="mt-6 grid gap-4 sm:grid-cols-2">
             <div className="rounded-lg border border-border bg-background/50 p-4">
-              <p className="text-sm text-muted-foreground">Name</p>
+              <div className="flex items-center justify-between">
+                <p className="text-sm text-muted-foreground">Name</p>
+                {editMode && profile && (
+                  <button
+                    aria-label={profile.is_hidden_full_name ? "Show name" : "Hide name"}
+                    className="rounded p-1 text-muted-foreground hover:bg-muted"
+                    onClick={async () => {
+                      try {
+                        const updated = await patchMyProfile<ProfileRead>({
+                          is_hidden_full_name: !profile.is_hidden_full_name,
+                        });
+                        setProfile(updated);
+                      } catch (error) {
+                        console.error(error);
+                        alert("Failed to update visibility");
+                      }
+                    }}
+                  >
+                    {profile.is_hidden_full_name ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                  </button>
+                )}
+              </div>
               {!editMode && (
                 <p className="mt-1 text-base font-medium text-foreground">
                   {profile?.full_name ?? user.full_name}
@@ -380,7 +414,28 @@ export default function ProfilePage() {
             </div>
 
             <div className="rounded-lg border border-border bg-background/50 p-4">
-              <p className="text-sm text-muted-foreground">Age</p>
+              <div className="flex items-center justify-between">
+                <p className="text-sm text-muted-foreground">Age</p>
+                {editMode && profile && (
+                  <button
+                    aria-label={profile.is_hidden_age ? "Show age" : "Hide age"}
+                    className="rounded p-1 text-muted-foreground hover:bg-muted"
+                    onClick={async () => {
+                      try {
+                        const updated = await patchMyProfile<ProfileRead>({
+                          is_hidden_age: !profile.is_hidden_age,
+                        });
+                        setProfile(updated);
+                      } catch (error) {
+                        console.error(error);
+                        alert("Failed to update visibility");
+                      }
+                    }}
+                  >
+                    {profile.is_hidden_age ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                  </button>
+                )}
+              </div>
               {!editMode && (
                 <p className="mt-1 text-base font-medium text-foreground">
                   {profile && profile.age !== null ? profile.age : "Not set"}
@@ -402,9 +457,30 @@ export default function ProfilePage() {
             </div>
 
             <div className="rounded-lg border border-border bg-background/50 p-4">
-              <p className="text-sm text-muted-foreground">
-                Years of experience
-              </p>
+              <div className="flex items-center justify-between">
+                <p className="text-sm text-muted-foreground">
+                  Years of experience
+                </p>
+                {editMode && profile && (
+                  <button
+                    aria-label={profile.is_hidden_years_experience ? "Show years of experience" : "Hide years of experience"}
+                    className="rounded p-1 text-muted-foreground hover:bg-muted"
+                    onClick={async () => {
+                      try {
+                        const updated = await patchMyProfile<ProfileRead>({
+                          is_hidden_years_experience: !profile.is_hidden_years_experience,
+                        });
+                        setProfile(updated);
+                      } catch (error) {
+                        console.error(error);
+                        alert("Failed to update visibility");
+                      }
+                    }}
+                  >
+                    {profile.is_hidden_years_experience ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                  </button>
+                )}
+              </div>
               {!editMode && (
                 <p className="mt-1 text-base font-medium text-foreground">
                   {profile && profile.years_experience !== null
@@ -437,6 +513,7 @@ export default function ProfilePage() {
               try {
                 const updated = await createEducation<ProfileRead>(payload);
                 setProfile(updated);
+                triggerReAnalysis();
               } catch (error) {
                 console.error(error);
                 alert("Failed to create education entry");
@@ -449,6 +526,7 @@ export default function ProfilePage() {
                   payload,
                 );
                 setProfile(updated);
+                triggerReAnalysis();
               } catch (error) {
                 console.error(error);
                 alert("Failed to update education entry");
@@ -459,9 +537,22 @@ export default function ProfilePage() {
                 await deleteEducation(educationId);
                 const updated = await getMyProfile<ProfileRead>();
                 setProfile(updated);
+                triggerReAnalysis();
               } catch (error) {
                 console.error(error);
                 alert("Failed to delete education entry");
+              }
+            }}
+            onToggleVisibility={async (educationId, isHidden) => {
+              try {
+                const updated = await updateEducation<ProfileRead>(
+                  educationId,
+                  { is_hidden: isHidden },
+                );
+                setProfile(updated);
+              } catch (error) {
+                console.error(error);
+                alert("Failed to update visibility");
               }
             }}
           />
@@ -475,6 +566,7 @@ export default function ProfilePage() {
               try {
                 const updated = await upsertSkillTags<ProfileRead>({ tags });
                 setProfile(updated);
+                triggerReAnalysis();
               } catch (error) {
                 console.error(error);
                 alert("Failed to save skills");
@@ -548,6 +640,7 @@ export default function ProfilePage() {
             try {
               const updated = await createProject<ProfileRead>(payload);
               setProfile(updated);
+              triggerReAnalysis();
             } catch (error) {
               console.error(error);
               alert("Failed to create project");
@@ -560,6 +653,7 @@ export default function ProfilePage() {
                 payload,
               );
               setProfile(updated);
+              triggerReAnalysis();
             } catch (error) {
               console.error(error);
               alert("Failed to update project");
@@ -570,9 +664,22 @@ export default function ProfilePage() {
               await deleteProject(projectId);
               const updated = await getMyProfile<ProfileRead>();
               setProfile(updated);
+              triggerReAnalysis();
             } catch (error) {
               console.error(error);
               alert("Failed to delete project");
+            }
+          }}
+          onToggleVisibility={async (projectId, isHidden) => {
+            try {
+              const updated = await updateProject<ProfileRead>(
+                projectId,
+                { is_hidden: isHidden },
+              );
+              setProfile(updated);
+            } catch (error) {
+              console.error(error);
+              alert("Failed to update visibility");
             }
           }}
         />

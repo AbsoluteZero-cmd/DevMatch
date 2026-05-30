@@ -10,7 +10,8 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import type { DegreeType, EducationRead } from "@/lib/profile-types";
-import { GraduationCap } from "lucide-react";
+import { cn } from "@/lib/utils";
+import { GraduationCap, Eye, EyeOff } from "lucide-react";
 import { useEffect, useState } from "react";
 
 interface EducationSectionProps {
@@ -32,6 +33,7 @@ interface EducationSectionProps {
     },
   ) => Promise<void> | void;
   onDelete?: (educationId: number) => Promise<void> | void;
+  onToggleVisibility?: (educationId: number, isHidden: boolean) => Promise<void> | void;
 }
 
 interface EducationDraft {
@@ -73,6 +75,7 @@ export function EducationSection({
   onCreate,
   onUpdate,
   onDelete,
+  onToggleVisibility,
 }: EducationSectionProps) {
   const [creating, setCreating] = useState(false);
   const [createDraft, setCreateDraft] = useState<EducationDraft>(emptyDraft);
@@ -138,7 +141,10 @@ export function EducationSection({
             return (
               <Card
                 key={education.id}
-                className="overflow-hidden border-border bg-card shadow-sm transition-shadow hover:shadow-md"
+                className={cn(
+                  "overflow-hidden border-border bg-card shadow-sm transition-shadow hover:shadow-md",
+                  education.is_hidden && "opacity-50",
+                )}
               >
                 <CardHeader className="pb-3">
                   <div className="flex items-start justify-between gap-3">
@@ -158,6 +164,15 @@ export function EducationSection({
 
                     {editMode && onUpdate && onDelete && !isEditing && (
                       <div className="flex gap-2">
+                        {onToggleVisibility && (
+                          <button
+                            aria-label={education.is_hidden ? "Show education" : "Hide education"}
+                            className="rounded border px-2 py-1 text-xs"
+                            onClick={() => onToggleVisibility(education.id, !education.is_hidden)}
+                          >
+                            {education.is_hidden ? <EyeOff className="h-3 w-3" /> : <Eye className="h-3 w-3" />}
+                          </button>
+                        )}
                         <button
                           className="rounded border px-2 py-1 text-xs"
                           onClick={() => startEdit(education)}

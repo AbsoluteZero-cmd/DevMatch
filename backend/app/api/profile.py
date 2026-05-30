@@ -46,6 +46,7 @@ class EducationRead(BaseModel):
     degree: DegreeType
     major: Optional[str] = None
     graduation_year: Optional[int] = None
+    is_hidden: bool = False
 
 
 class ProjectHistoryRead(BaseModel):
@@ -57,6 +58,7 @@ class ProjectHistoryRead(BaseModel):
     role: Optional[str] = None
     technologies_used: Optional[str] = None
     description: Optional[str] = None
+    is_hidden: bool = False
 
 
 class ExternalURLRead(BaseModel):
@@ -69,6 +71,10 @@ class ExternalURLRead(BaseModel):
     parse_status: ExternalURLParseStatus
     parse_message: Optional[str] = None
     parsed_at: Optional[datetime] = None
+    parsed_repo_list: Optional[List[dict]] = None
+    parsed_commit_count: Optional[int] = None
+    parsed_hf_model_count: Optional[int] = None
+    parsed_hf_dataset_count: Optional[int] = None
 
 
 class RoleRead(BaseModel):
@@ -96,6 +102,9 @@ class ProfileRead(BaseModel):
     full_name: Optional[str] = None
     age: Optional[int] = None
     years_experience: Optional[int] = None
+    is_hidden_full_name: bool = False
+    is_hidden_age: bool = False
+    is_hidden_years_experience: bool = False
     education_entries: List[EducationRead]
     project_history_entries: List[ProjectHistoryRead]
     external_urls: List[ExternalURLRead]
@@ -104,30 +113,25 @@ class ProfileRead(BaseModel):
 
 
 def _build_profile_read(profile: Profile) -> ProfileRead:
-    education_entries = [
-        entry for entry in profile.education_entries if not entry.is_hidden
-    ]
-    project_history_entries = [
-        entry for entry in profile.project_history_entries if not entry.is_hidden
-    ]
-    external_urls = [entry for entry in profile.external_urls if not entry.is_hidden]
+    education_entries = list(profile.education_entries)
+    project_history_entries = list(profile.project_history_entries)
+    external_urls = list(profile.external_urls)
     roles = [
         role_entry
         for role_entry in profile.profile_roles
-        if not role_entry.is_hidden and role_entry.skill_level in _VISIBLE_ROLE_LEVELS
+        if role_entry.skill_level in _VISIBLE_ROLE_LEVELS
     ]
-    skill_tags = [
-        tag_entry for tag_entry in profile.profile_skill_tags if not tag_entry.is_hidden
-    ]
+    skill_tags = list(profile.profile_skill_tags)
 
     return ProfileRead(
         id=str(profile.id),
         user_id=profile.user_id,
-        full_name=None if profile.is_hidden_full_name else profile.full_name,
-        age=None if profile.is_hidden_age else profile.age,
-        years_experience=(
-            None if profile.is_hidden_years_experience else profile.years_experience
-        ),
+        full_name=profile.full_name,
+        age=profile.age,
+        years_experience=profile.years_experience,
+        is_hidden_full_name=profile.is_hidden_full_name,
+        is_hidden_age=profile.is_hidden_age,
+        is_hidden_years_experience=profile.is_hidden_years_experience,
         education_entries=[
             EducationRead.model_validate(entry) for entry in education_entries
         ],

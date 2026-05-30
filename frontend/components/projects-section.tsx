@@ -5,8 +5,8 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { ExternalLink, Github, Folder } from "lucide-react";
-
+import { ExternalLink, Github, Folder, Eye, EyeOff } from "lucide-react";
+import { cn } from "@/lib/utils";
 import { useEffect, useState } from "react";
 
 interface Project {
@@ -18,6 +18,7 @@ interface Project {
   technologies: string[];
   githubUrl?: string;
   liveUrl?: string;
+  is_hidden?: boolean;
 }
 
 interface ProjectsSectionProps {
@@ -28,6 +29,7 @@ interface ProjectsSectionProps {
   onCreate?: (payload: any) => Promise<void> | void;
   onUpdate?: (projectId: number, payload: any) => Promise<void> | void;
   onDelete?: (projectId: number) => Promise<void> | void;
+  onToggleVisibility?: (projectId: number, isHidden: boolean) => Promise<void> | void;
 }
 
 export function ProjectsSection({
@@ -38,6 +40,7 @@ export function ProjectsSection({
   onCreate,
   onUpdate,
   onDelete,
+  onToggleVisibility,
 }: ProjectsSectionProps) {
   const [creating, setCreating] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
@@ -118,7 +121,10 @@ export function ProjectsSection({
           {projects.map((project) => (
             <Card
               key={project.id ?? project.name}
-              className="group overflow-hidden border-border bg-card transition-all hover:border-primary/30 hover:shadow-md"
+              className={cn(
+                "group overflow-hidden border-border bg-card transition-all hover:border-primary/30 hover:shadow-md",
+                project.is_hidden && "opacity-50",
+              )}
             >
               <CardHeader className="pb-3">
                 <div className="flex items-start justify-between gap-2">
@@ -133,6 +139,15 @@ export function ProjectsSection({
                   <div className="flex items-center gap-1">
                     {editMode && onUpdate && onDelete ? (
                       <div className="flex gap-2">
+                        {onToggleVisibility && project.id && (
+                          <button
+                            aria-label={project.is_hidden ? "Show project" : "Hide project"}
+                            className="rounded border px-2 py-1 text-xs"
+                            onClick={() => onToggleVisibility(project.id!, !project.is_hidden)}
+                          >
+                            {project.is_hidden ? <EyeOff className="h-3 w-3" /> : <Eye className="h-3 w-3" />}
+                          </button>
+                        )}
                         <button
                           className="rounded border px-2 py-1 text-xs"
                           onClick={async () => {

@@ -9,6 +9,28 @@ export type RoleTier = 'Core' | 'Specialized';
 
 export type SkillLevel = 'Beginner' | 'Intermediate' | 'Advanced' | 'Expert';
 
+export const STANDARDIZED_ROLES = [
+	'Frontend Engineer',
+	'Backend Engineer',
+	'Full-Stack Engineer',
+	'Mobile Engineer (iOS / Android)',
+	'DevOps / Infrastructure Engineer',
+	'Data Engineer',
+	'ML / AI Engineer',
+	'Data Scientist',
+	'Security Engineer',
+	'QA Engineer',
+] as const;
+
+export type StandardizedRoleName = (typeof STANDARDIZED_ROLES)[number];
+
+export const LEVEL_ORDER: readonly SkillLevel[] = [
+	'Beginner',
+	'Intermediate',
+	'Advanced',
+	'Expert',
+] as const;
+
 export type ExternalURLType = 'GITHUB' | 'HUGGING_FACE' | 'LINKEDIN' | 'OTHER';
 
 export type ExternalURLSource = 'MANUAL' | 'OAUTH_LINKED';
@@ -21,6 +43,7 @@ export interface EducationRead {
 	degree: DegreeType;
 	major: string | null;
 	graduation_year: number | null;
+	is_hidden: boolean;
 }
 
 export interface ProjectHistoryRead {
@@ -30,6 +53,7 @@ export interface ProjectHistoryRead {
 	role: string | null;
 	technologies_used: string | null;
 	description: string | null;
+	is_hidden: boolean;
 }
 
 export interface GitHubRepoRead {
@@ -74,6 +98,9 @@ export interface ProfileRead {
 	full_name: string | null;
 	age: number | null;
 	years_experience: number | null;
+	is_hidden_full_name: boolean;
+	is_hidden_age: boolean;
+	is_hidden_years_experience: boolean;
 	education_entries: EducationRead[];
 	project_history_entries: ProjectHistoryRead[];
 	external_urls: ExternalURLRead[];
@@ -90,6 +117,7 @@ export interface ProfileProjectCard {
 	technologies: string[];
 	githubUrl?: string;
 	liveUrl?: string;
+	is_hidden?: boolean;
 }
 
 export interface ProfileSummaryStat {

@@ -3,6 +3,7 @@
 import { getAllSkillTags } from "@/lib/api";
 import type { SkillTagRead } from "@/lib/profile-types";
 import { cn } from "@/lib/utils";
+import { Sparkles } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 
 interface SkillsSectionProps {
@@ -188,9 +189,16 @@ export function SkillsSection({
               key={skill.name}
               className={cn(
                 "group flex items-center rounded-full border border-border bg-card px-4 py-2 text-sm font-medium text-foreground transition-all hover:border-primary/30 hover:bg-primary/5",
+                skill.is_ai_generated && "border-purple-200 bg-purple-50 dark:border-purple-800 dark:bg-purple-950",
               )}
             >
               <span className="mr-2">{skill.name}</span>
+              {skill.is_ai_generated && (
+                <span className="mr-1 inline-flex items-center gap-0.5 rounded-full bg-purple-100 px-1.5 py-0.5 text-[10px] font-semibold text-purple-700 dark:bg-purple-900 dark:text-purple-300">
+                  <Sparkles className="h-2.5 w-2.5" />
+                  AI
+                </span>
+              )}
               {editMode && (
                 <button
                   aria-label={`Remove ${skill.name}`}
