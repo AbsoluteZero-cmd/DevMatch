@@ -508,6 +508,7 @@ export interface TeamDiscoveryRead {
 	created_at: string;
 	member_count: number | null;
 	members: TeamSummary['members'];
+	job_postings: JobPostingRead[];
 	redacted: boolean;
 }
 
@@ -554,4 +555,88 @@ export async function sendRoomMessage<T = unknown>(roomId: number, content: stri
 		headers: { 'Content-Type': 'application/json' },
 		body: JSON.stringify({ content }),
 	});
+}
+
+// ---------------------------------------------------------------------------
+// Applications (FR-58 – FR-62)
+// ---------------------------------------------------------------------------
+
+export type ApplicationStatus =
+	| 'pending'
+	| 'reviewing'
+	| 'accepted'
+	| 'declined'
+	| 'cancelled'
+	| 'withdrawn'
+	| 'closed';
+
+export interface DeveloperApplicationOut {
+	id: number;
+	job_posting_id: string;
+	applicant_id: number;
+	status: ApplicationStatus;
+	created_at: string;
+}
+
+export interface ApplicationOfferPayload {
+	team_introduction: string;
+	proposed_role: string;
+	expected_contributions: string;
+	compensation_details: string;
+}
+
+export async function applyToJob<T = DeveloperApplicationOut>(
+	jobPostingId: string,
+): Promise<T> {
+	return fetchProtectedApi<T>(`/applications/apply/${jobPostingId}`, {
+		method: 'POST',
+	});
+}
+
+export async function getMyApplications<T = DeveloperApplicationOut[]>(): Promise<T> {
+	return fetchProtectedApi<T>('/applications/applications/me');
+}
+
+export async function getApplication<T = DeveloperApplicationOut>(
+	applicationId: number,
+): Promise<T> {
+	return fetchProtectedApi<T>(`/applications/applications/${applicationId}`);
+}
+
+export async function declineApplication<T = DeveloperApplicationOut>(
+	applicationId: number,
+): Promise<T> {
+	return fetchProtectedApi<T>(
+		`/applications/applications/${applicationId}/decline`,
+		{ method: 'POST' },
+	);
+}
+
+export async function acceptApplication<T = DeveloperApplicationOut>(
+	applicationId: number,
+	offerData: ApplicationOfferPayload,
+): Promise<T> {
+	return fetchProtectedApi<T>(
+		`/applications/applications/${applicationId}/accept`,
+		{
+			method: 'POST',
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify(offerData),
+		},
+	);
+}
+
+// ---------------------------------------------------------------------------
+// Job Posting Discovery (for search page – FR-58)
+// ---------------------------------------------------------------------------
+
+export interface JobPostingRead {
+	id: string;
+	title: string;
+	required_role: string;
+	role_description: string | null;
+	min_skill_level: string;
+	status: string;
+	is_public: boolean;
+	created_at: string;
 }

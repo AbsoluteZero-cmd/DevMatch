@@ -9,16 +9,21 @@ import { Card, CardContent } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Separator } from "@/components/ui/separator"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { discoverTeams, type TeamDiscoveryRead } from "@/lib/api"
+import { discoverTeams, applyToJob, type TeamDiscoveryRead } from "@/lib/api"
 import {
   Briefcase,
   Filter,
   GraduationCap,
   Globe,
   Lock,
+  Loader2,
   Search as SearchIcon,
+  Send,
   Sparkles,
   Users,
+  CheckCircle2,
+  ChevronDown,
+  ChevronUp,
 } from "lucide-react"
 
 type DeveloperSearchResult = {
@@ -116,6 +121,10 @@ export default function SearchPage() {
   const [teams, setTeams] = useState<TeamDiscoveryRead[]>([])
   const [teamLoading, setTeamLoading] = useState(true)
   const [teamError, setTeamError] = useState<string | null>(null)
+  const [expandedTeamId, setExpandedTeamId] = useState<string | null>(null)
+  const [appliedPostingIds, setAppliedPostingIds] = useState<Set<string>>(new Set())
+  const [applyLoadingId, setApplyLoadingId] = useState<string | null>(null)
+  const [applyMessage, setApplyMessage] = useState<{ postingId: string; text: string; isError: boolean } | null>(null)
 
   useEffect(() => {
     let isActive = true
@@ -199,6 +208,31 @@ export default function SearchPage() {
         ? current.filter((item) => item !== value)
         : [...current, value],
     )
+  }
+
+  const handleApply = async (postingId: string) => {
+    setApplyLoadingId(postingId)
+    setApplyMessage(null)
+    try {
+      await applyToJob(postingId)
+      setAppliedPostingIds((prev) => new Set(prev).add(postingId))
+      setApplyMessage({ postingId, text: "Application submitted!", isError: false })
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Failed to apply"
+      const detail = msg.includes("too many pending")
+        ? "You have too many active applications (max 5)."
+        : msg.includes("already applied")
+          ? "You have already applied to this posting."
+          : "Failed to submit application."
+      setApplyMessage({ postingId, text: detail, isError: true })
+    } finally {
+      setApplyLoadingId(null)
+    }
+  }
+
+  const toggleExpand = (teamId: string) => {
+    setExpandedTeamId((prev) => (prev === teamId ? null : teamId))
+    setApplyMessage(null)
   }
 
   return (
@@ -414,6 +448,10 @@ export default function SearchPage() {
                   {filteredTeams.map((team) => {
                     const visibility = visibilityBadge(team.visibility)
                     const VisibilityIcon = visibility.icon
+                    const isExpanded = expandedTeamId === team.id
+                    const publicPostings = (team.job_postings ?? []).filter(
+                      (p) => p.is_public && p.status === "OPEN",
+                    )
 
                     return (
                       <Card
@@ -421,7 +459,10 @@ export default function SearchPage() {
                         className="border-border bg-card transition-all hover:border-primary/30 hover:shadow-md"
                       >
                         <CardContent className="space-y-4 p-6">
-                          <div className="flex items-start justify-between gap-3">
+                          <div
+                            className="flex items-start justify-between gap-3 cursor-pointer"
+                            onClick={() => toggleExpand(team.id)}
+                          >
                             <div>
                               <h3 className="font-semibold text-foreground">{team.name}</h3>
                               <p className="mt-1 text-sm text-muted-foreground">
@@ -444,13 +485,25 @@ export default function SearchPage() {
                               : team.description ?? "No project description provided."}
                           </p>
 
-                          <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                            <Users className="h-4 w-4" />
-                            <span>
-                              {team.redacted || team.member_count === null
-                                ? "Member details hidden"
-                                : `${team.member_count} member${team.member_count === 1 ? "" : "s"}`}
-                            </span>
+                          <div className="flex items-center justify-between text-sm text-muted-foreground">
+                            <div className="flex items-center gap-2">
+                              <Users className="h-4 w-4" />
+                              <span>
+                                {team.redacted || team.member_count === null
+                                  ? "Member details hidden"
+                                  : `${team.member_count} member${team.member_count === 1 ? "" : "s"}`}
+                              </span>
+                            </div>
+                            {publicPostings.length > 0 && (
+                              <button
+                                onClick={(e) => { e.stopPropagation(); toggleExpand(team.id) }}
+                                className="flex items-center gap-1 text-xs font-medium text-primary hover:underline"
+                              >
+                                <Briefcase className="h-3.5 w-3.5" />
+                                {publicPostings.length} open position{publicPostings.length === 1 ? "" : "s"}
+                                {isExpanded ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+                              </button>
+                            )}
                           </div>
 
                           {!team.redacted && team.members.length > 0 && (
@@ -470,6 +523,49 @@ export default function SearchPage() {
                                   +{team.members.length - 4} more
                                 </span>
                               )}
+                            </div>
+                          )}
+
+                          {isExpanded && publicPostings.length > 0 && (
+                            <div className="space-y-2 border-t border-border pt-3">
+                              <p className="text-xs font-medium text-muted-foreground">Open Positions</p>
+                              {applyMessage && publicPostings.some((p) => p.id === applyMessage.postingId) && (
+                                <p className={`text-xs ${applyMessage.isError ? "text-destructive" : "text-green-600"}`}>
+                                  {applyMessage.text}
+                                </p>
+                              )}
+                              {publicPostings.map((posting) => {
+                                const isApplied = appliedPostingIds.has(posting.id)
+                                const isLoading = applyLoadingId === posting.id
+                                return (
+                                  <div
+                                    key={posting.id}
+                                    className="flex items-center justify-between gap-2 rounded-lg border border-border bg-background/60 p-3"
+                                  >
+                                    <div className="min-w-0">
+                                      <p className="truncate text-sm font-medium text-foreground">{posting.title}</p>
+                                      <p className="text-xs text-muted-foreground">
+                                        {posting.required_role} &middot; {posting.min_skill_level}
+                                      </p>
+                                    </div>
+                                    <Button
+                                      size="sm"
+                                      variant={isApplied ? "outline" : "default"}
+                                      className="shrink-0 gap-1.5"
+                                      disabled={isApplied || isLoading}
+                                      onClick={(e) => { e.stopPropagation(); handleApply(posting.id) }}
+                                    >
+                                      {isApplied ? (
+                                        <><CheckCircle2 className="h-3.5 w-3.5" /> Applied</>
+                                      ) : isLoading ? (
+                                        <><Loader2 className="h-3.5 w-3.5 animate-spin" /> Applying...</>
+                                      ) : (
+                                        <><Send className="h-3.5 w-3.5" /> Apply</>
+                                      )}
+                                    </Button>
+                                  </div>
+                                )
+                              })}
                             </div>
                           )}
 

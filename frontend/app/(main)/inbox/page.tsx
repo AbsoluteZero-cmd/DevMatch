@@ -9,6 +9,7 @@ import { Badge } from "@/components/ui/badge"
 import { cn } from "@/lib/utils"
 import { Send, ArrowLeft, Loader2, Inbox, Briefcase } from "lucide-react"
 import { useAuth } from "@/contexts/auth-context"
+import { useUnread } from "@/contexts/unread-context"
 import {
   API_URL,
   getInbox,
@@ -18,6 +19,9 @@ import {
   cancelJoin,
   getRoomMessages,
   sendRoomMessage,
+  getMyApplications,
+  type DeveloperApplicationOut,
+  type ApplicationStatus,
 } from "@/lib/api"
 
 interface InboxItem {
@@ -38,6 +42,7 @@ interface InboxItem {
   proposed_role: string | null
   expected_contributions: string | null
   compensation_details: string | null
+  expires_at: string | null
 }
 
 interface ChatMessage {
@@ -89,8 +94,23 @@ function statusBadge(item: InboxItem | null): { label: string; className: string
   return { label: "Pending", className: "bg-amber-100 text-amber-700" }
 }
 
+const applicationStatusStyles: Record<ApplicationStatus, { label: string; className: string }> = {
+  pending: { label: "Pending", className: "bg-amber-100 text-amber-700" },
+  reviewing: { label: "Reviewing", className: "bg-blue-100 text-blue-700" },
+  accepted: { label: "Accepted", className: "bg-green-100 text-green-700" },
+  declined: { label: "Declined", className: "bg-red-100 text-red-700" },
+  cancelled: { label: "Cancelled", className: "bg-muted text-muted-foreground" },
+  withdrawn: { label: "Withdrawn", className: "bg-muted text-muted-foreground" },
+  closed: { label: "Closed", className: "bg-muted text-muted-foreground" },
+}
+
+function applicationBadge(status: ApplicationStatus) {
+  return applicationStatusStyles[status] ?? { label: status, className: "bg-muted text-muted-foreground" }
+}
+
 export default function InboxPage() {
   const { user, accessToken } = useAuth()
+  const { increment: incrementUnread, clear: clearUnread } = useUnread()
   const [items, setItems] = useState<InboxItem[]>([])
   const [selected, setSelected] = useState<InboxItem | null>(null)
   const [messages, setMessages] = useState<ChatMessage[]>([])
@@ -100,6 +120,10 @@ export default function InboxPage() {
   const [sending, setSending] = useState(false)
   const [actionLoading, setActionLoading] = useState(false)
   const messagesEndRef = useRef<HTMLDivElement>(null)
+
+  const [activeTab, setActiveTab] = useState<"offers" | "applications">("offers")
+  const [applications, setApplications] = useState<DeveloperApplicationOut[]>([])
+  const [applicationsLoading, setApplicationsLoading] = useState(false)
 
   const currentUserId = user ? Number(user.id) : null
 
@@ -145,6 +169,9 @@ export default function InboxPage() {
             i.room_id === data.room_id ? { ...i, last_message: data.content } : i
           )
         )
+        if (!currentSelected || data.room_id !== currentSelected.room_id) {
+          incrementUnread()
+        }
       }
 
       if (data.type === "inbox_invite" || data.type === "new_offer") {
@@ -176,6 +203,7 @@ export default function InboxPage() {
       .then(setItems)
       .catch(() => {})
       .finally(() => setLoading(false))
+    clearUnread()
   }, [])
 
   useEffect(() => {
@@ -189,6 +217,15 @@ export default function InboxPage() {
       .catch(() => setMessages([]))
       .finally(() => setMessagesLoading(false))
   }, [selected?.room_id])
+
+  useEffect(() => {
+    if (activeTab !== "applications") return
+    setApplicationsLoading(true)
+    getMyApplications()
+      .then(setApplications)
+      .catch(() => setApplications([]))
+      .finally(() => setApplicationsLoading(false))
+  }, [activeTab])
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" })
@@ -279,13 +316,106 @@ export default function InboxPage() {
   return (
     <main className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
       <div className="space-y-6">
-        <div>
-          <h1 className="text-2xl font-bold text-foreground">Offers & Messages</h1>
-          <p className="mt-1 text-muted-foreground">
-            Manage team offers and chat with recruiters
-          </p>
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-2xl font-bold text-foreground">Offers & Messages</h1>
+            <p className="mt-1 text-muted-foreground">
+              Manage team offers and chat with recruiters
+            </p>
+          </div>
+          <div className="flex rounded-lg border border-border bg-muted p-1">
+            <button
+              onClick={() => { setActiveTab("offers"); setSelected(null) }}
+              className={cn(
+                "rounded-md px-3 py-1.5 text-sm font-medium transition-colors",
+                activeTab === "offers"
+                  ? "bg-card text-foreground shadow-sm"
+                  : "text-muted-foreground hover:text-foreground"
+              )}
+            >
+              Offers
+            </button>
+            <button
+              onClick={() => { setActiveTab("applications"); setSelected(null) }}
+              className={cn(
+                "rounded-md px-3 py-1.5 text-sm font-medium transition-colors",
+                activeTab === "applications"
+                  ? "bg-card text-foreground shadow-sm"
+                  : "text-muted-foreground hover:text-foreground"
+              )}
+            >
+              My Applications
+            </button>
+          </div>
         </div>
 
+        {activeTab === "applications" && (
+          <div className="space-y-4">
+            {(() => {
+              const activeCount = applications.filter((a) => a.status === "pending" || a.status === "reviewing").length
+              return (
+                <div className="flex items-center justify-between">
+                  <p className="text-sm text-muted-foreground">
+                    {applications.length} application{applications.length === 1 ? "" : "s"} total
+                  </p>
+                  <div className="flex items-center gap-2">
+                    <p className="text-xs text-muted-foreground">Active:</p>
+                    <div className="h-2 w-24 overflow-hidden rounded-full bg-muted">
+                      <div
+                        className={cn(
+                          "h-full rounded-full transition-all",
+                          activeCount >= 5 ? "bg-red-500" : activeCount >= 3 ? "bg-amber-500" : "bg-green-500",
+                        )}
+                        style={{ width: `${(activeCount / 5) * 100}%` }}
+                      />
+                    </div>
+                    <p className="text-xs font-medium text-foreground">{activeCount}/5</p>
+                  </div>
+                </div>
+              )
+            })()}
+
+            {applicationsLoading ? (
+              <div className="flex items-center justify-center py-12">
+                <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+              </div>
+            ) : applications.length === 0 ? (
+              <Card className="border-border bg-card">
+                <CardContent className="flex flex-col items-center justify-center py-12">
+                  <Briefcase className="mb-3 h-10 w-10 text-muted-foreground" />
+                  <p className="text-sm text-muted-foreground">No applications yet</p>
+                  <p className="mt-1 text-xs text-muted-foreground">Browse teams in Search to apply to open positions.</p>
+                </CardContent>
+              </Card>
+            ) : (
+              <div className="space-y-3">
+                {applications.map((app) => {
+                  const badge = applicationBadge(app.status)
+                  return (
+                    <Card key={app.id} className="border-border bg-card">
+                      <CardContent className="flex items-center justify-between gap-4 p-4">
+                        <div className="min-w-0">
+                          <p className="truncate text-sm font-medium text-foreground">
+                            Application #{app.id}
+                          </p>
+                          <p className="text-xs text-muted-foreground">
+                            Posting {app.job_posting_id.slice(0, 8)}... &middot;{" "}
+                            {new Date(app.created_at).toLocaleDateString()}
+                          </p>
+                        </div>
+                        <Badge className={cn("shrink-0", badge.className)}>
+                          {badge.label}
+                        </Badge>
+                      </CardContent>
+                    </Card>
+                  )
+                })}
+              </div>
+            )}
+          </div>
+        )}
+
+        {activeTab === "offers" && (
         <div className="grid gap-6 lg:grid-cols-5">
           <div className={cn(
             "space-y-3 lg:col-span-2",
@@ -339,6 +469,11 @@ export default function InboxPage() {
                           <p className="mt-1 text-xs text-muted-foreground">
                             {new Date(item.invited_at).toLocaleDateString()}
                           </p>
+                          {item.offer_status === "pending" && item.expires_at && (
+                            <p className="text-xs text-amber-600">
+                              Expires {new Date(item.expires_at).toLocaleDateString()}
+                            </p>
+                          )}
 
                           {phase === "pending" && (
                             <div className="mt-3 flex gap-2">
@@ -582,6 +717,7 @@ export default function InboxPage() {
             )}
           </div>
         </div>
+        )}
       </div>
     </main>
   )

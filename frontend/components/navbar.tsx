@@ -4,6 +4,7 @@ import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { cn } from "@/lib/utils"
 import { LayoutDashboard, Search, Inbox, User, Settings } from "lucide-react"
+import { useUnread } from "@/contexts/unread-context"
 
 const navItems = [
   { name: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
@@ -14,6 +15,7 @@ const navItems = [
 
 export function Navbar() {
   const pathname = usePathname()
+  const { unreadCount } = useUnread()
 
   return (
     <header className="sticky top-0 z-50 w-full border-b border-border bg-card/80 backdrop-blur-sm">
@@ -30,12 +32,13 @@ export function Navbar() {
         <nav className="hidden items-center gap-1 md:flex">
           {navItems.map((item) => {
             const isActive = pathname === item.href
+            const isInbox = item.name === "Inbox"
             return (
               <Link
                 key={item.name}
                 href={item.href}
                 className={cn(
-                  "flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium transition-colors",
+                  "relative flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium transition-colors",
                   isActive
                     ? "bg-primary/10 text-primary"
                     : "text-muted-foreground hover:bg-muted hover:text-foreground"
@@ -43,6 +46,11 @@ export function Navbar() {
               >
                 <item.icon className="h-4 w-4" />
                 {item.name}
+                {isInbox && unreadCount > 0 && (
+                  <span className="absolute -right-1 -top-1 flex h-5 min-w-5 items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-bold text-white">
+                    {unreadCount > 99 ? "99+" : unreadCount}
+                  </span>
+                )}
               </Link>
             )
           })}
@@ -66,12 +74,13 @@ export function Navbar() {
         <nav className="fixed bottom-0 left-0 right-0 z-50 flex items-center justify-around border-t border-border bg-card p-2 md:hidden">
           {navItems.map((item) => {
             const isActive = pathname === item.href
+            const isInbox = item.name === "Inbox"
             return (
               <Link
                 key={item.name}
                 href={item.href}
                 className={cn(
-                  "flex flex-col items-center gap-1 rounded-lg px-3 py-2 text-xs font-medium transition-colors",
+                  "relative flex flex-col items-center gap-1 rounded-lg px-3 py-2 text-xs font-medium transition-colors",
                   isActive
                     ? "text-primary"
                     : "text-muted-foreground"
@@ -79,6 +88,11 @@ export function Navbar() {
               >
                 <item.icon className="h-5 w-5" />
                 {item.name}
+                {isInbox && unreadCount > 0 && (
+                  <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-red-500 px-0.5 text-[9px] font-bold text-white">
+                    {unreadCount > 99 ? "99+" : unreadCount}
+                  </span>
+                )}
               </Link>
             )
           })}

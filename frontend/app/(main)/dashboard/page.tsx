@@ -196,6 +196,8 @@ export default function DashboardPage() {
   const [teamSubmitting, setTeamSubmitting] = useState(false)
   const [teamError, setTeamError] = useState<string | null>(null)
   const [closingPostingId, setClosingPostingId] = useState<string | null>(null)
+  const [filterLevel, setFilterLevel] = useState<string>("")
+  const [filterTag, setFilterTag] = useState<string>("")
   const [membersOpen, setMembersOpen] = useState(false)
   const [memberName, setMemberName] = useState("")
   const [memberRole, setMemberRole] = useState("")
@@ -331,7 +333,7 @@ export default function DashboardPage() {
 
     setDevelopersLoading(true)
     setDevelopersError(null)
-    getRecommendations(selectedTeamId, selectedPostingId)
+    getRecommendations(selectedTeamId, selectedPostingId, filterLevel || undefined, filterTag || undefined)
       .then((recs) => {
         if (!cancelled) setDevelopers(recs.map(mapRecommendation))
       })
@@ -352,7 +354,7 @@ export default function DashboardPage() {
     return () => {
       cancelled = true
     }
-  }, [selectedTeamId, selectedPostingId])
+  }, [selectedTeamId, selectedPostingId, filterLevel, filterTag])
 
   const openOffer = (developer: Developer) => {
     setOfferTarget(developer)
@@ -851,20 +853,43 @@ export default function DashboardPage() {
               </div>
 
               {openPostings.length > 0 && (
-                <div className="w-full">
-                  <Label className="mb-1 block text-sm font-medium text-muted-foreground">Posting</Label>
-                  <Select value={selectedPostingId} onValueChange={setSelectedPostingId}>
-                    <SelectTrigger className="w-full">
-                      <SelectValue placeholder="Select a posting" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {openPostings.map((posting) => (
-                        <SelectItem key={posting.id} value={posting.id}>
-                          {posting.title}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                <div className="w-full space-y-3">
+                  <div>
+                    <Label className="mb-1 block text-sm font-medium text-muted-foreground">Posting</Label>
+                    <Select value={selectedPostingId} onValueChange={setSelectedPostingId}>
+                      <SelectTrigger className="w-full">
+                        <SelectValue placeholder="Select a posting" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {openPostings.map((posting) => (
+                          <SelectItem key={posting.id} value={posting.id}>
+                            {posting.title}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <Label className="mb-1 block text-xs text-muted-foreground">Min Level</Label>
+                      <Select value={filterLevel} onValueChange={setFilterLevel}>
+                        <SelectTrigger className="w-full"><SelectValue placeholder="Any" /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="any">Any</SelectItem>
+                          {skillOptions.map((s) => <SelectItem key={s} value={s}>{s}</SelectItem>)}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div>
+                      <Label className="mb-1 block text-xs text-muted-foreground">Skill Tag</Label>
+                      <Input
+                        placeholder="e.g. React"
+                        value={filterTag}
+                        onChange={(e) => setFilterTag(e.target.value)}
+                        className="h-9"
+                      />
+                    </div>
+                  </div>
                 </div>
               )}
 
