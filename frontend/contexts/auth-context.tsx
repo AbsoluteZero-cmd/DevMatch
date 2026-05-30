@@ -9,6 +9,7 @@ import {
 } from 'react';
 import {
 	AuthTokens,
+	API_URL,
 	clearAuthTokens,
 	getCurrentUser,
 	getStoredAuthTokens,
@@ -90,9 +91,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 		body.append('password', credentials.password);
 
 		const response = await fetch(
-			process.env.NEXT_PUBLIC_BACKEND_URL
-				? `${process.env.NEXT_PUBLIC_BACKEND_URL}/api/v1/auth/login`
-				: 'http://localhost:8000/api/v1/auth/login',
+			`${API_URL}/auth/login`,
 			{
 				method: 'POST',
 				headers: {
@@ -133,9 +132,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 			credentials.role === 'team-leader' ? 'TEAM_LEADER' : 'DEVELOPER';
 
 		const response = await fetch(
-			process.env.NEXT_PUBLIC_BACKEND_URL
-				? `${process.env.NEXT_PUBLIC_BACKEND_URL}/api/v1/auth/register`
-				: 'http://localhost:8000/api/v1/auth/register',
+			`${API_URL}/auth/register`,
 			{
 				method: 'POST',
 				headers: {

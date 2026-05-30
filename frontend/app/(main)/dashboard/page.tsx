@@ -621,6 +621,15 @@ export default function DashboardPage() {
                 <Plus className="h-4 w-4" />
                 Create Job Posting
               </Button>
+              <Button
+                variant="outline"
+                className="h-10 gap-2 rounded-xl"
+                onClick={openMembers}
+                disabled={!selectedTeam}
+              >
+                <Users className="h-4 w-4" />
+                Manage Members
+              </Button>
             </div>
           </div>
         </section>
@@ -666,9 +675,26 @@ export default function DashboardPage() {
                       </Badge>
                     </div>
 
-                    <p className="max-w-3xl text-sm leading-relaxed text-muted-foreground">
-                      {selectedTeam.development_goal ?? selectedTeam.description ?? "No summary provided yet."}
-                    </p>
+                    {selectedTeam.development_goal || selectedTeam.description ? (
+                      <div className="max-w-3xl space-y-2">
+                        {selectedTeam.development_goal && (
+                          <div>
+                            <p className="text-xs font-medium text-muted-foreground">Development Goal</p>
+                            <p className="text-sm leading-relaxed text-foreground">{selectedTeam.development_goal}</p>
+                          </div>
+                        )}
+                        {selectedTeam.description && (
+                          <div>
+                            <p className="text-xs font-medium text-muted-foreground">Project Description</p>
+                            <p className="text-sm leading-relaxed text-foreground">{selectedTeam.description}</p>
+                          </div>
+                        )}
+                      </div>
+                    ) : (
+                      <p className="max-w-3xl text-sm leading-relaxed text-muted-foreground">
+                        No summary provided yet.
+                      </p>
+                    )}
 
                     <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
                       <span className="rounded-full border border-border bg-background px-3 py-1">
@@ -678,6 +704,27 @@ export default function DashboardPage() {
                         Leader: {leaderName}
                       </span>
                     </div>
+
+                    {selectedTeam.members.length > 0 && (
+                      <div>
+                        <p className="text-xs font-medium text-muted-foreground">Members</p>
+                        <div className="mt-2 flex flex-wrap gap-2">
+                          {selectedTeam.members.map((m) => (
+                            <span
+                              key={m.id}
+                              className="inline-flex items-center gap-1.5 rounded-full border border-border bg-background px-3 py-1 text-xs"
+                            >
+                              <span className="font-medium text-foreground">
+                                {m.unregistered_name ?? `Member ${m.id}`}
+                              </span>
+                              <span className="text-muted-foreground">
+                                {m.unregistered_role_description ?? (m.is_registered ? "Registered" : "Member")}
+                              </span>
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    )}
                   </div>
                 </div>
               ) : (
@@ -723,7 +770,7 @@ export default function DashboardPage() {
                             variant={posting.is_public ? "secondary" : "outline"}
                             className="shrink-0"
                           >
-                            {posting.status}
+                            {posting.is_public ? "Public" : "Private"}
                           </Badge>
                         </div>
                         <div className="mt-3 grid gap-2">

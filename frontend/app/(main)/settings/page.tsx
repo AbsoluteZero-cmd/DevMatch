@@ -9,7 +9,7 @@ import { Switch } from "@/components/ui/switch"
 import { Github, Shield, Eye, Search, Save, CheckCircle2 } from "lucide-react"
 
 export default function SettingsPage() {
-    const [githubUrl, setGithubUrl] = useState("https://github.com/SabrinaExample-dev")
+    const [githubUrl, setGithubUrl] = useState("")
   const [makeSkillsPublic, setMakeSkillsPublic] = useState(true)
   const [showInSearch, setShowInSearch] = useState(true)
   const [saved, setSaved] = useState(false)

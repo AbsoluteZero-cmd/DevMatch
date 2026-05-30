@@ -10,6 +10,7 @@ import { cn } from "@/lib/utils"
 import { Send, ArrowLeft, Loader2, Inbox, Briefcase } from "lucide-react"
 import { useAuth } from "@/contexts/auth-context"
 import {
+  API_URL,
   getInbox,
   markInterested,
   declineChatInvite,
@@ -64,6 +65,7 @@ function getPhase(item: InboxItem | null, currentUserId: number | null): Phase {
   if (item.status === "declined") return "declined"
   if (hasOffer && item.offer_status === "declined") return "declined"
   if (hasOffer && item.offer_status === "cancelled") return "declined"
+  if (hasOffer && item.offer_status === "expired") return "readonly"
 
   if (hasOffer && isRecipient) {
     if (item.status === "pending") return "pending"
@@ -82,6 +84,7 @@ function statusBadge(item: InboxItem | null): { label: string; className: string
   if (item.offer_status === "interested") return { label: "Interested", className: "bg-blue-100 text-blue-700" }
   if (item.offer_status === "declined" || item.status === "declined") return { label: "Declined", className: "bg-red-100 text-red-700" }
   if (item.offer_status === "cancelled") return { label: "Cancelled", className: "bg-muted text-muted-foreground" }
+  if (item.offer_status === "expired") return { label: "Expired", className: "bg-gray-100 text-gray-600" }
   if (item.status === "accepted") return { label: "Accepted", className: "bg-green-100 text-green-700" }
   return { label: "Pending", className: "bg-amber-100 text-amber-700" }
 }
@@ -109,7 +112,8 @@ export default function InboxPage() {
   useEffect(() => {
     if (!accessToken) return
 
-    const ws = new WebSocket(`ws://localhost:8000/ws/inbox?token=${accessToken}`)
+    const wsBaseUrl = API_URL.replace(/^http/, 'ws').replace(/\/api\/v1\/?$/, '')
+    const ws = new WebSocket(`${wsBaseUrl}/ws/inbox?token=${accessToken}`)
     socketRef.current = ws
 
     ws.onmessage = (event) => {
@@ -536,6 +540,12 @@ export default function InboxPage() {
                   {selectedPhase === "declined" && (
                     <p className="mb-3 text-center text-sm text-muted-foreground">
                       This offer is no longer active.
+                    </p>
+                  )}
+
+                  {selectedPhase === "readonly" && selected.offer_status === "expired" && (
+                    <p className="mb-3 text-center text-sm text-muted-foreground">
+                      This offer has expired after 7 days with no response.
                     </p>
                   )}
 

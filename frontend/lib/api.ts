@@ -3,7 +3,7 @@ export interface AuthTokens {
 	refresh_token: string;
 }
 
-const API_URL =
+export const API_URL =
 	process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:8000/api/v1';
 const ACCESS_TOKEN_KEY = 'devmatch_access_token';
 const REFRESH_TOKEN_KEY = 'devmatch_refresh_token';
