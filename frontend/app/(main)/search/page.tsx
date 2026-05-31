@@ -1,20 +1,30 @@
 "use client"
 
-import { useEffect, useMemo, useState, type Dispatch, type SetStateAction } from "react"
+import {
+  useEffect,
+  useMemo,
+  useState,
+  type Dispatch,
+  type SetStateAction,
+  type MouseEvent,
+} from "react"
 import Link from "next/link"
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Separator } from "@/components/ui/separator"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { discoverTeams, applyToJob, getCurrentUser, type TeamDiscoveryRead } from "@/lib/api"
+import {
+  discoverTeams,
+  applyToJob,
+  getCurrentUser,
+  type TeamDiscoveryRead,
+} from "@/lib/api"
 import { DeveloperOfferSearch } from "@/components/developer-offer-search"
 import {
   Briefcase,
   Filter,
-  GraduationCap,
   Globe,
   Lock,
   Loader2,
@@ -27,79 +37,7 @@ import {
   ChevronUp,
 } from "lucide-react"
 
-type DeveloperSearchResult = {
-  id: string
-  full_name: string
-  university: string
-  location: string
-  roles: string[]
-  skills: string[]
-  experience: string
-  avatar: string
-  visible: boolean
-}
-
-const developerSeed: DeveloperSearchResult[] = [
-  {
-    id: "dev-1",
-    full_name: "Alex Kim",
-    university: "Seoul National University",
-    location: "Seoul, South Korea",
-    roles: ["Frontend Engineer", "Full-Stack Engineer"],
-    skills: ["React", "TypeScript", "Design Systems"],
-    experience: "3 years",
-    avatar:
-      "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=400&h=400&fit=crop&crop=face",
-    visible: true,
-  },
-  {
-    id: "dev-2",
-    full_name: "Jordan Lee",
-    university: "POSTECH",
-    location: "Pohang, South Korea",
-    roles: ["Backend Engineer", "DevOps / Infrastructure Engineer"],
-    skills: ["FastAPI", "PostgreSQL", "AWS"],
-    experience: "4 years",
-    avatar:
-      "https://images.unsplash.com/photo-1438761681033-6461ffad8d80?w=400&h=400&fit=crop&crop=face",
-    visible: true,
-  },
-  {
-    id: "dev-3",
-    full_name: "Taylor Park",
-    university: "Yonsei University",
-    location: "Seoul, South Korea",
-    roles: ["ML / AI Engineer", "Data Scientist"],
-    skills: ["PyTorch", "TensorFlow", "MLOps"],
-    experience: "2 years",
-    avatar:
-      "https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=400&h=400&fit=crop&crop=face",
-    visible: true,
-  },
-  {
-    id: "dev-4",
-    full_name: "Mina Choi",
-    university: "KAIST",
-    location: "Daejeon, South Korea",
-    roles: ["Security Engineer", "QA Engineer"],
-    skills: ["AppSec", "Playwright", "CI/CD"],
-    experience: "5 years",
-    avatar:
-      "https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=400&h=400&fit=crop&crop=face",
-    visible: false,
-  },
-]
-
 const teamFilters = ["Public", "Private", "With members", "Has description"]
-
-function initials(name: string) {
-  return name
-    .split(" ")
-    .map((part) => part[0])
-    .join("")
-    .slice(0, 2)
-    .toUpperCase()
-}
 
 function visibilityBadge(visibility: string) {
   return visibility === "PRIVATE"
@@ -116,16 +54,19 @@ export default function SearchPage() {
     "Public",
     "Private",
   ])
-  const [selectedDeveloperFilters, setSelectedDeveloperFilters] = useState<
-    string[]
-  >(["Visible", "Hidden"])
   const [teams, setTeams] = useState<TeamDiscoveryRead[]>([])
   const [teamLoading, setTeamLoading] = useState(true)
   const [teamError, setTeamError] = useState<string | null>(null)
   const [expandedTeamId, setExpandedTeamId] = useState<string | null>(null)
-  const [appliedPostingIds, setAppliedPostingIds] = useState<Set<string>>(new Set())
+  const [appliedPostingIds, setAppliedPostingIds] = useState<Set<string>>(
+    new Set(),
+  )
   const [applyLoadingId, setApplyLoadingId] = useState<string | null>(null)
-  const [applyMessage, setApplyMessage] = useState<{ postingId: string; text: string; isError: boolean } | null>(null)
+  const [applyMessage, setApplyMessage] = useState<{
+    postingId: string
+    text: string
+    isError: boolean
+  } | null>(null)
   const [isLeader, setIsLeader] = useState(false)
 
   useEffect(() => {
@@ -146,12 +87,9 @@ export default function SearchPage() {
     const loadTeams = async () => {
       setTeamLoading(true)
       setTeamError(null)
-
       try {
         const data = await discoverTeams(query.trim() || undefined)
-        if (isActive) {
-          setTeams(data)
-        }
+        if (isActive) setTeams(data)
       } catch (error) {
         if (isActive) {
           setTeams([])
@@ -160,44 +98,16 @@ export default function SearchPage() {
           )
         }
       } finally {
-        if (isActive) {
-          setTeamLoading(false)
-        }
+        if (isActive) setTeamLoading(false)
       }
     }
 
-    if (searchMode === "teams") {
-      void loadTeams()
-    }
+    if (searchMode === "teams") void loadTeams()
 
     return () => {
       isActive = false
     }
   }, [query, searchMode])
-
-  const filteredDevelopers = useMemo(() => {
-    const normalizedQuery = query.trim().toLowerCase()
-    return developerSeed.filter((developer) => {
-      const matchesQuery =
-        normalizedQuery.length === 0 ||
-        [
-          developer.full_name,
-          developer.university,
-          developer.location,
-          developer.roles.join(" "),
-          developer.skills.join(" "),
-        ]
-          .join(" ")
-          .toLowerCase()
-          .includes(normalizedQuery)
-
-      const matchesVisibility =
-        (developer.visible && selectedDeveloperFilters.includes("Visible")) ||
-        (!developer.visible && selectedDeveloperFilters.includes("Hidden"))
-
-      return matchesQuery && matchesVisibility
-    })
-  }, [query, selectedDeveloperFilters])
 
   const filteredTeams = useMemo(() => {
     return teams.filter((team) => {
@@ -279,7 +189,9 @@ export default function SearchPage() {
               <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
                 <span className="rounded-full bg-muted px-3 py-1">Teams</span>
                 <span className="rounded-full bg-muted px-3 py-1">Developers</span>
-                <span className="rounded-full bg-muted px-3 py-1">Privacy-aware previews</span>
+                <span className="rounded-full bg-muted px-3 py-1">
+                  Privacy-aware previews
+                </span>
               </div>
             </CardContent>
           </Card>
@@ -287,7 +199,7 @@ export default function SearchPage() {
 
         <Tabs
           value={searchMode}
-          onValueChange={(value) =>
+          onValueChange={(value: string) =>
             setSearchMode(value as "developers" | "teams")
           }
         >
@@ -297,43 +209,25 @@ export default function SearchPage() {
               <TabsTrigger value="teams">Teams</TabsTrigger>
             </TabsList>
 
-            <div className="flex flex-wrap gap-2">
-              {searchMode === "teams"
-                ? teamFilters.map((filter) => (
-                    <Button
-                      key={filter}
-                      type="button"
-                      variant={
-                        selectedTeamFilters.includes(filter) ? "default" : "outline"
-                      }
-                      size="sm"
-                      className="gap-2"
-                      onClick={() => toggleFilter(filter, setSelectedTeamFilters)}
-                    >
-                      <Filter className="h-4 w-4" />
-                      {filter}
-                    </Button>
-                  ))
-                : isLeader ? null : ["Visible", "Hidden"].map((filter) => (
-                    <Button
-                      key={filter}
-                      type="button"
-                      variant={
-                        selectedDeveloperFilters.includes(filter)
-                          ? "default"
-                          : "outline"
-                      }
-                      size="sm"
-                      className="gap-2"
-                      onClick={() =>
-                        toggleFilter(filter, setSelectedDeveloperFilters)
-                      }
-                    >
-                      <Filter className="h-4 w-4" />
-                      {filter}
-                    </Button>
-                  ))}
-            </div>
+            {searchMode === "teams" && (
+              <div className="flex flex-wrap gap-2">
+                {teamFilters.map((filter) => (
+                  <Button
+                    key={filter}
+                    type="button"
+                    variant={
+                      selectedTeamFilters.includes(filter) ? "default" : "outline"
+                    }
+                    size="sm"
+                    className="gap-2"
+                    onClick={() => toggleFilter(filter, setSelectedTeamFilters)}
+                  >
+                    <Filter className="h-4 w-4" />
+                    {filter}
+                  </Button>
+                ))}
+              </div>
+            )}
           </div>
 
           <div className="mt-4 flex gap-3">
@@ -345,7 +239,7 @@ export default function SearchPage() {
                 placeholder={
                   searchMode === "teams"
                     ? "Search by team name or development goal..."
-                    : "Search by name, skill, role, or university..."
+                    : "Search by name, skill, or role..."
                 }
                 className="pl-10"
               />
@@ -353,86 +247,7 @@ export default function SearchPage() {
           </div>
 
           <TabsContent value="developers" className="mt-6 space-y-4">
-            {isLeader && <DeveloperOfferSearch query={query} />}
-            {!isLeader && (
-            <>
-            <div className="flex items-center justify-between">
-              <p className="text-sm text-muted-foreground">
-                {filteredDevelopers.length} developer
-                {filteredDevelopers.length === 1 ? "" : "s"} matched your search.
-              </p>
-              <Link
-                href="/settings"
-                className="text-sm font-medium text-primary hover:underline"
-              >
-                Tune profile visibility
-              </Link>
-            </div>
-
-            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-              {filteredDevelopers.map((developer) => (
-                <Card
-                  key={developer.id}
-                  className="border-border bg-card transition-all hover:border-primary/30 hover:shadow-md"
-                >
-                  <CardContent className="space-y-4 p-6">
-                    <div className="flex items-start gap-4">
-                      <Avatar className="h-12 w-12">
-                        <AvatarImage src={developer.avatar} alt={developer.full_name} />
-                        <AvatarFallback className="bg-primary text-primary-foreground">
-                          {initials(developer.full_name)}
-                        </AvatarFallback>
-                      </Avatar>
-                      <div className="min-w-0 flex-1">
-                        <div className="flex items-start justify-between gap-2">
-                          <div>
-                            <h3 className="font-semibold text-foreground">
-                              {developer.full_name}
-                            </h3>
-                            <div className="mt-1 flex items-center gap-1 text-sm text-muted-foreground">
-                              <GraduationCap className="h-3.5 w-3.5" />
-                              <span>{developer.university}</span>
-                            </div>
-                          </div>
-                          <Badge
-                            variant={developer.visible ? "secondary" : "outline"}
-                          >
-                            {developer.visible ? "Visible" : "Hidden"}
-                          </Badge>
-                        </div>
-                        <p className="mt-2 text-sm text-muted-foreground">
-                          {developer.location} · {developer.experience}
-                        </p>
-                      </div>
-                    </div>
-
-                    <div className="flex flex-wrap gap-1.5">
-                      {developer.roles.map((role) => (
-                        <span
-                          key={role}
-                          className="rounded-full bg-primary/10 px-2.5 py-0.5 text-xs font-medium text-primary"
-                        >
-                          {role}
-                        </span>
-                      ))}
-                    </div>
-
-                    <div className="flex flex-wrap gap-1.5">
-                      {developer.skills.map((skill) => (
-                        <span
-                          key={skill}
-                          className="rounded-full bg-muted px-2.5 py-0.5 text-xs font-medium text-muted-foreground"
-                        >
-                          {skill}
-                        </span>
-                      ))}
-                    </div>
-                  </CardContent>
-                </Card>
-              ))}
-            </div>
-            </>
-            )}
+            <DeveloperOfferSearch query={query} canOffer={isLeader} />
           </TabsContent>
 
           <TabsContent value="teams" className="mt-6 space-y-4">
@@ -479,18 +294,23 @@ export default function SearchPage() {
                       >
                         <CardContent className="space-y-4 p-6">
                           <div
-                            className="flex items-start justify-between gap-3 cursor-pointer"
+                            className="flex cursor-pointer items-start justify-between gap-3"
                             onClick={() => toggleExpand(team.id)}
                           >
                             <div>
-                              <h3 className="font-semibold text-foreground">{team.name}</h3>
+                              <h3 className="font-semibold text-foreground">
+                                {team.name}
+                              </h3>
                               <p className="mt-1 text-sm text-muted-foreground">
-                                {team.development_goal ?? "No development goal provided"}
+                                {team.development_goal ??
+                                  "No development goal provided"}
                               </p>
                             </div>
                             <Badge
                               variant={
-                                team.visibility === "PRIVATE" ? "outline" : "secondary"
+                                team.visibility === "PRIVATE"
+                                  ? "outline"
+                                  : "secondary"
                               }
                             >
                               <VisibilityIcon className="mr-1 h-3.5 w-3.5" />
@@ -501,7 +321,8 @@ export default function SearchPage() {
                           <p className="text-sm text-muted-foreground">
                             {team.redacted
                               ? "Private team details are hidden until you join or receive access."
-                              : team.description ?? "No project description provided."}
+                              : team.description ??
+                                "No project description provided."}
                           </p>
 
                           <div className="flex items-center justify-between text-sm text-muted-foreground">
@@ -515,12 +336,20 @@ export default function SearchPage() {
                             </div>
                             {publicPostings.length > 0 && (
                               <button
-                                onClick={(e) => { e.stopPropagation(); toggleExpand(team.id) }}
+                                onClick={(e: MouseEvent) => {
+                                  e.stopPropagation()
+                                  toggleExpand(team.id)
+                                }}
                                 className="flex items-center gap-1 text-xs font-medium text-primary hover:underline"
                               >
                                 <Briefcase className="h-3.5 w-3.5" />
-                                {publicPostings.length} open position{publicPostings.length === 1 ? "" : "s"}
-                                {isExpanded ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+                                {publicPostings.length} open position
+                                {publicPostings.length === 1 ? "" : "s"}
+                                {isExpanded ? (
+                                  <ChevronUp className="h-3.5 w-3.5" />
+                                ) : (
+                                  <ChevronDown className="h-3.5 w-3.5" />
+                                )}
                               </button>
                             )}
                           </div>
@@ -533,8 +362,9 @@ export default function SearchPage() {
                                   className="rounded-full bg-muted px-2.5 py-0.5 text-xs font-medium text-muted-foreground"
                                 >
                                   {member.is_registered
-                                    ? "Registered member"
-                                    : member.unregistered_name ?? "Unregistered member"}
+                                    ? member.full_name ?? "Registered member"
+                                    : member.unregistered_name ??
+                                      "Unregistered member"}
                                 </span>
                               ))}
                               {team.members.length > 4 && (
@@ -547,12 +377,19 @@ export default function SearchPage() {
 
                           {isExpanded && publicPostings.length > 0 && (
                             <div className="space-y-2 border-t border-border pt-3">
-                              <p className="text-xs font-medium text-muted-foreground">Open Positions</p>
-                              {applyMessage && publicPostings.some((p) => p.id === applyMessage.postingId) && (
-                                <p className={`text-xs ${applyMessage.isError ? "text-destructive" : "text-green-600"}`}>
-                                  {applyMessage.text}
-                                </p>
-                              )}
+                              <p className="text-xs font-medium text-muted-foreground">
+                                Open Positions
+                              </p>
+                              {applyMessage &&
+                                publicPostings.some(
+                                  (p) => p.id === applyMessage.postingId,
+                                ) && (
+                                  <p
+                                    className={`text-xs ${applyMessage.isError ? "text-destructive" : "text-green-600"}`}
+                                  >
+                                    {applyMessage.text}
+                                  </p>
+                                )}
                               {publicPostings.map((posting) => {
                                 const isApplied = appliedPostingIds.has(posting.id)
                                 const isLoading = applyLoadingId === posting.id
@@ -562,9 +399,12 @@ export default function SearchPage() {
                                     className="flex items-center justify-between gap-2 rounded-lg border border-border bg-background/60 p-3"
                                   >
                                     <div className="min-w-0">
-                                      <p className="truncate text-sm font-medium text-foreground">{posting.title}</p>
+                                      <p className="truncate text-sm font-medium text-foreground">
+                                        {posting.title}
+                                      </p>
                                       <p className="text-xs text-muted-foreground">
-                                        {posting.required_role} &middot; {posting.min_skill_level}
+                                        {posting.required_role} &middot;{" "}
+                                        {posting.min_skill_level}
                                       </p>
                                     </div>
                                     <Button
@@ -572,14 +412,25 @@ export default function SearchPage() {
                                       variant={isApplied ? "outline" : "default"}
                                       className="shrink-0 gap-1.5"
                                       disabled={isApplied || isLoading}
-                                      onClick={(e) => { e.stopPropagation(); handleApply(posting.id) }}
+                                      onClick={(e: MouseEvent) => {
+                                        e.stopPropagation()
+                                        handleApply(posting.id)
+                                      }}
                                     >
                                       {isApplied ? (
-                                        <><CheckCircle2 className="h-3.5 w-3.5" /> Applied</>
+                                        <>
+                                          <CheckCircle2 className="h-3.5 w-3.5" />{" "}
+                                          Applied
+                                        </>
                                       ) : isLoading ? (
-                                        <><Loader2 className="h-3.5 w-3.5 animate-spin" /> Applying...</>
+                                        <>
+                                          <Loader2 className="h-3.5 w-3.5 animate-spin" />{" "}
+                                          Applying...
+                                        </>
                                       ) : (
-                                        <><Send className="h-3.5 w-3.5" /> Apply</>
+                                        <>
+                                          <Send className="h-3.5 w-3.5" /> Apply
+                                        </>
                                       )}
                                     </Button>
                                   </div>
@@ -587,7 +438,6 @@ export default function SearchPage() {
                               })}
                             </div>
                           )}
-
                         </CardContent>
                       </Card>
                     )

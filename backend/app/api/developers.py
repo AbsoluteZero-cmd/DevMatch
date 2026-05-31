@@ -12,12 +12,13 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session, selectinload
 
 from app.core.dependencies import get_db, get_current_user
-from app.models.user import User
+from app.models.user import User, UserRole
 from app.models.profile import (
     Profile,
     ProfileRole,
     ProfileSkillTag,
 )
+from app.models.offer import Offer
 
 router = APIRouter()
 
@@ -58,6 +59,71 @@ class DeveloperProfileOut(BaseModel):
     education: List[DeveloperEducationOut] = []
     projects: List[DeveloperProjectOut] = []
     links: List[DeveloperLinkOut] = []
+
+
+class DeveloperListItem(BaseModel):
+    profile_id: uuid.UUID
+    user_id: Optional[int] = None
+    full_name: Optional[str] = None
+    roles: List[DeveloperRoleOut] = []
+    skills: List[str] = []
+    already_offered: bool = False
+
+
+@router.get("", response_model=List[DeveloperListItem])
+def list_developers(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    profiles = (
+        db.query(Profile)
+        .join(User, User.id == Profile.user_id)
+        .filter(User.role == UserRole.DEVELOPER)
+        .options(
+            selectinload(Profile.profile_roles).selectinload(ProfileRole.role),
+            selectinload(Profile.profile_skill_tags).selectinload(
+                ProfileSkillTag.skill_tag
+            ),
+        )
+        .all()
+    )
+
+    # Developers the current leader has already sent an offer to.
+    sent_recipient_ids = {
+        rid
+        for (rid,) in db.query(Offer.recipient_id)
+        .filter(Offer.sender_id == current_user.id)
+        .all()
+    }
+
+    items: List[DeveloperListItem] = []
+    for profile in profiles:
+        roles = [
+            DeveloperRoleOut(
+                name=pr.role.name,
+                tier=pr.role.tier.value,
+                skill_level=pr.skill_level.value,
+            )
+            for pr in profile.profile_roles
+            if pr.role and not pr.is_hidden
+        ]
+        skills = [
+            pst.skill_tag.name
+            for pst in profile.profile_skill_tags
+            if pst.skill_tag and not pst.is_hidden
+        ]
+        items.append(
+            DeveloperListItem(
+                profile_id=profile.id,
+                user_id=profile.user_id,
+                full_name=None if profile.is_hidden_full_name else profile.full_name,
+                roles=roles,
+                skills=skills,
+                already_offered=profile.user_id in sent_recipient_ids,
+            )
+        )
+
+    return items
 
 
 @router.get("/{profile_id}", response_model=DeveloperProfileOut)

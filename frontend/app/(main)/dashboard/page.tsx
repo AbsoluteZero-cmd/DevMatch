@@ -283,6 +283,7 @@ function LeaderDashboard() {
 	const openPostings =
 		selectedTeam?.job_postings.filter((posting) => posting.status === 'OPEN') ??
 		[];
+	const allPostings = selectedTeam?.job_postings ?? [];
 
 	useEffect(() => {
 		if (!selectedTeam) {
@@ -807,13 +808,13 @@ function LeaderDashboard() {
 								<div className='rounded-2xl border border-dashed border-border bg-card/60 p-6 text-sm text-muted-foreground'>
 									Select a team to view postings.
 								</div>
-							) : openPostings.length === 0 ? (
+							) : allPostings.length === 0 ? (
 								<div className='rounded-2xl border border-dashed border-border bg-card/60 p-6 text-sm text-muted-foreground'>
-									No open job postings yet.
+									No job postings yet.
 								</div>
 							) : (
 								<div className='grid gap-4 sm:grid-cols-2 xl:grid-cols-3'>
-									{openPostings.map((posting) => (
+									{allPostings.map((posting) => (
 										<Card key={posting.id} className='border-border bg-card'>
 											<CardContent className='p-4'>
 												<div className='flex items-start justify-between'>
@@ -832,7 +833,8 @@ function LeaderDashboard() {
 														}
 														className='shrink-0'
 													>
-														{posting.is_public ? 'Public' : 'Private'}
+														{posting.is_public ? 'Public' : 'Private'} ·{' '}
+														{posting.status === 'OPEN' ? 'Open' : 'Closed'}
 													</Badge>
 												</div>
 												<div className='mt-3 grid gap-2'>
@@ -859,7 +861,7 @@ function LeaderDashboard() {
 														size='sm'
 														variant='outline'
 														className='w-full gap-2'
-														onClick={() => handleClosePosting(posting.id)}
+														onClick={() => posting.status === 'OPEN' && handleClosePosting(posting.id)}
 														disabled={closingPostingId === posting.id}
 													>
 														{closingPostingId === posting.id ? (

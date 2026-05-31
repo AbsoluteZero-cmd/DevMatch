@@ -52,6 +52,7 @@ class MessageResponse(BaseModel):
     id: int
     room_id: int
     user_id: int
+    full_name: Optional[str] = None
     content: str
     message_type: str
     created_at: datetime
@@ -178,7 +179,18 @@ async def get_room_messages(
         .all()
     )
 
-    return messages
+    return [
+        MessageResponse(
+            id=m.id,
+            room_id=m.room_id,
+            user_id=m.user_id,
+            full_name=m.user.full_name if m.user else None,
+            content=m.content,
+            message_type=m.message_type,
+            created_at=m.created_at,
+        )
+        for m in messages
+    ]
 
 
 @router.post("/rooms/{room_id}/messages", response_model=MessageResponse)
@@ -219,6 +231,16 @@ async def send_message(
     db.commit()
     db.refresh(db_message)
 
+    response = MessageResponse(
+        id=db_message.id,
+        room_id=db_message.room_id,
+        user_id=db_message.user_id,
+        full_name=current_user.full_name,
+        content=db_message.content,
+        message_type=db_message.message_type,
+        created_at=db_message.created_at,
+    )
+
     participants = (
         db.query(ChatParticipant).filter(ChatParticipant.room_id == room_id).all()
     )
@@ -238,7 +260,7 @@ async def send_message(
         },
     )
 
-    return db_message
+    return response
 
 
 @router.get("/inbox", response_model=List[InboxItemResponse])
@@ -367,6 +389,22 @@ async def send_offer(
         raise HTTPException(
             status_code=404,
             detail="Job posting not found for this team.",
+        )
+
+    previous_offer = (
+        db.query(Offer)
+        .filter(
+            Offer.recipient_id == offer_data.recipient_id,
+            Offer.job_posting_id == offer_data.job_posting_id,
+            Offer.status.in_([OfferStatus.PENDING, OfferStatus.INTERESTED]),
+        )
+        .first()
+    )
+
+    if previous_offer:
+        raise HTTPException(
+            status_code=400,
+            detail="An active offer already exists for this developer and job posting.",
         )
 
     open_offers_count = (

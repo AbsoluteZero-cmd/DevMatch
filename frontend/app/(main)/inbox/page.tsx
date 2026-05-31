@@ -49,6 +49,7 @@ interface ChatMessage {
   id: number
   room_id: number
   user_id: number
+  full_name?: string | null
   content: string
   message_type: string
   created_at: string
@@ -110,7 +111,7 @@ function applicationBadge(status: ApplicationStatus) {
 
 export default function InboxPage() {
   const { user, accessToken } = useAuth()
-  const { increment: incrementUnread, clear: clearUnread } = useUnread()
+  const { clear: clearUnread } = useUnread()
   const [items, setItems] = useState<InboxItem[]>([])
   const [selected, setSelected] = useState<InboxItem | null>(null)
   const [messages, setMessages] = useState<ChatMessage[]>([])
@@ -157,6 +158,7 @@ export default function InboxPage() {
                 id: data.message_id,
                 room_id: data.room_id,
                 user_id: data.user_id,
+                full_name: data.full_name ?? null,
                 content: data.content,
                 message_type: data.message_type || "text",
                 created_at: data.timestamp,
@@ -169,9 +171,9 @@ export default function InboxPage() {
             i.room_id === data.room_id ? { ...i, last_message: data.content } : i
           )
         )
-        if (!currentSelected || data.room_id !== currentSelected.room_id) {
-          incrementUnread()
-        }
+        // Being on the inbox counts as read; the global unread badge is
+        // managed by UnreadProvider (so it works from any page).
+        clearUnread()
       }
 
       if (data.type === "inbox_invite" || data.type === "new_offer") {
@@ -584,11 +586,17 @@ export default function InboxPage() {
 
                       {messages.map((msg) => {
                         const isMe = user && msg.user_id === Number(user.id)
+                        const senderName = isMe
+                          ? user?.full_name ?? "You"
+                          : msg.full_name ?? selected.created_by_name
                         return (
                           <div
                             key={msg.id}
-                            className={cn("flex", isMe ? "justify-end" : "justify-start")}
+                            className={cn("flex flex-col", isMe ? "items-end" : "items-start")}
                           >
+                            <span className="mb-0.5 px-1 text-xs font-medium text-muted-foreground">
+                              {senderName}
+                            </span>
                             <div
                               className={cn(
                                 "max-w-[80%] rounded-2xl px-4 py-2",

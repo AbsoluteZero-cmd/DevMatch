@@ -173,7 +173,9 @@ export async function getOAuthProviderStatus<T = unknown>(
 	return fetchProtectedApiCached<T>(`/oauth/${provider}/status`);
 }
 
-export async function patchMyProfile<T = unknown>(payload: unknown): Promise<T> {
+export async function patchMyProfile<T = unknown>(
+	payload: unknown,
+): Promise<T> {
 	return fetchProtectedApi<T>('/profile/me', {
 		method: 'PATCH',
 		headers: { 'Content-Type': 'application/json' },
@@ -181,7 +183,9 @@ export async function patchMyProfile<T = unknown>(payload: unknown): Promise<T> 
 	});
 }
 
-export async function createEducation<T = unknown>(payload: unknown): Promise<T> {
+export async function createEducation<T = unknown>(
+	payload: unknown,
+): Promise<T> {
 	return fetchProtectedApi<T>('/profile/education', {
 		method: 'POST',
 		headers: { 'Content-Type': 'application/json' },
@@ -189,7 +193,10 @@ export async function createEducation<T = unknown>(payload: unknown): Promise<T>
 	});
 }
 
-export async function updateEducation<T = unknown>(educationId: number, payload: unknown): Promise<T> {
+export async function updateEducation<T = unknown>(
+	educationId: number,
+	payload: unknown,
+): Promise<T> {
 	return fetchProtectedApi<T>(`/profile/education/${educationId}`, {
 		method: 'PATCH',
 		headers: { 'Content-Type': 'application/json' },
@@ -211,7 +218,10 @@ export async function createProject<T = unknown>(payload: unknown): Promise<T> {
 	});
 }
 
-export async function updateProject<T = unknown>(projectId: number, payload: unknown): Promise<T> {
+export async function updateProject<T = unknown>(
+	projectId: number,
+	payload: unknown,
+): Promise<T> {
 	return fetchProtectedApi<T>(`/profile/projects/${projectId}`, {
 		method: 'PATCH',
 		headers: { 'Content-Type': 'application/json' },
@@ -241,7 +251,10 @@ export async function upsertLinks<T = unknown>(payload: unknown): Promise<T> {
 	});
 }
 
-export async function updateLink<T = unknown>(linkId: number, payload: unknown): Promise<T> {
+export async function updateLink<T = unknown>(
+	linkId: number,
+	payload: unknown,
+): Promise<T> {
 	return fetchProtectedApi<T>(`/profile/links/${linkId}`, {
 		method: 'PATCH',
 		headers: { 'Content-Type': 'application/json' },
@@ -263,7 +276,9 @@ export async function addSkillTag<T = unknown>(payload: unknown): Promise<T> {
 	});
 }
 
-export async function upsertSkillTags<T = unknown>(payload: unknown): Promise<T> {
+export async function upsertSkillTags<T = unknown>(
+	payload: unknown,
+): Promise<T> {
 	return fetchProtectedApi<T>('/profile/tags', {
 		method: 'PUT',
 		headers: { 'Content-Type': 'application/json' },
@@ -305,11 +320,9 @@ export async function getAnalysisStatus(): Promise<AnalysisStatusResponse> {
 export async function logoutApi(): Promise<void> {
 	try {
 		await fetchProtectedApi<void>('/auth/logout', { method: 'POST' });
-	} catch {
-	}
+	} catch {}
 	clearAuthTokens();
 }
-
 
 export async function getInbox<T = unknown>(): Promise<T> {
 	return fetchProtectedApi<T>('/chatrooms/inbox');
@@ -321,7 +334,9 @@ export async function markInterested<T = unknown>(roomId: number): Promise<T> {
 	});
 }
 
-export async function declineChatInvite<T = unknown>(roomId: number): Promise<T> {
+export async function declineChatInvite<T = unknown>(
+	roomId: number,
+): Promise<T> {
 	return fetchProtectedApi<T>(`/chatrooms/inbox/${roomId}/decline`, {
 		method: 'POST',
 	});
@@ -349,7 +364,9 @@ export interface SendOfferPayload {
 	compensation_details?: string;
 }
 
-export async function sendOffer<T = unknown>(payload: SendOfferPayload): Promise<T> {
+export async function sendOffer<T = unknown>(
+	payload: SendOfferPayload,
+): Promise<T> {
 	return fetchProtectedApi<T>('/chatrooms/inbox/offer', {
 		method: 'POST',
 		headers: { 'Content-Type': 'application/json' },
@@ -396,7 +413,9 @@ export interface CreateTeamPayload {
 	visibility?: 'PUBLIC' | 'PRIVATE';
 }
 
-export async function createTeam<T = TeamSummary>(payload: CreateTeamPayload): Promise<T> {
+export async function createTeam<T = TeamSummary>(
+	payload: CreateTeamPayload,
+): Promise<T> {
 	return fetchProtectedApi<T>('/teams', {
 		method: 'POST',
 		headers: { 'Content-Type': 'application/json' },
@@ -458,7 +477,9 @@ export interface TeamCapabilityRead {
 	overall_label: string;
 }
 
-export async function getTeamCapability(teamId: string): Promise<TeamCapabilityRead> {
+export async function getTeamCapability(
+	teamId: string,
+): Promise<TeamCapabilityRead> {
 	return fetchProtectedApi<TeamCapabilityRead>(`/teams/${teamId}/capability`);
 }
 
@@ -513,7 +534,9 @@ export interface TeamDiscoveryRead {
 	redacted: boolean;
 }
 
-export async function discoverTeams(query?: string): Promise<TeamDiscoveryRead[]> {
+export async function discoverTeams(
+	query?: string,
+): Promise<TeamDiscoveryRead[]> {
 	const qs = query ? `?query=${encodeURIComponent(query)}` : '';
 	return fetchProtectedApi<TeamDiscoveryRead[]>(`/teams/discover${qs}`);
 }
@@ -550,7 +573,10 @@ export async function getRoomMessages<T = unknown>(roomId: number): Promise<T> {
 	return fetchProtectedApi<T>(`/chatrooms/rooms/${roomId}/messages`);
 }
 
-export async function sendRoomMessage<T = unknown>(roomId: number, content: string): Promise<T> {
+export async function sendRoomMessage<T = unknown>(
+	roomId: number,
+	content: string,
+): Promise<T> {
 	return fetchProtectedApi<T>(`/chatrooms/rooms/${roomId}/messages`, {
 		method: 'POST',
 		headers: { 'Content-Type': 'application/json' },
@@ -594,7 +620,9 @@ export async function applyToJob<T = DeveloperApplicationOut>(
 	});
 }
 
-export async function getMyApplications<T = DeveloperApplicationOut[]>(): Promise<T> {
+export async function getMyApplications<
+	T = DeveloperApplicationOut[],
+>(): Promise<T> {
 	return fetchProtectedApi<T>('/applications/applications/me');
 }
 
@@ -700,6 +728,19 @@ export async function getDeveloperProfile(
 	profileId: string,
 ): Promise<DeveloperProfileView> {
 	return fetchProtectedApi<DeveloperProfileView>(`/developers/${profileId}`);
+}
+
+export interface DeveloperListItem {
+	profile_id: string;
+	user_id: number | null;
+	full_name: string | null;
+	roles: DeveloperProfileRole[];
+	skills: string[];
+	already_offered: boolean;
+}
+
+export async function getAllDevelopers(): Promise<DeveloperListItem[]> {
+	return fetchProtectedApi<DeveloperListItem[]>(`/developers`);
 }
 
 // ---------------------------------------------------------------------------
