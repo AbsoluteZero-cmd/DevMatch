@@ -1,6 +1,15 @@
 from fastapi import APIRouter
 
-from app.api import auth, chatroom, profile, ai, team, oauth, developer_application
+from app.api import (
+    auth,
+    chatroom,
+    profile,
+    ai,
+    team,
+    oauth,
+    developer_application,
+    developers,
+)
 
 api_router = APIRouter()
 
@@ -12,4 +21,7 @@ api_router.include_router(ai.router, prefix="/profile", tags=["ai"])
 api_router.include_router(team.router, prefix="/teams", tags=["teams"])
 api_router.include_router(
     developer_application.router, prefix="/applications", tags=["applications"]
+)
+api_router.include_router(
+    developers.router, prefix="/developers", tags=["developers"]
 )

@@ -83,6 +83,7 @@ class TeamMemberRead(BaseModel):
     id: int
     is_registered: bool
     user_id: Optional[int] = None
+    full_name: Optional[str] = None
     unregistered_name: Optional[str] = None
     unregistered_role_description: Optional[str] = None
 
@@ -189,6 +190,7 @@ def _build_team_read(team: Team) -> TeamRead:
                 id=m.id,
                 is_registered=m.is_registered,
                 user_id=m.user_id,
+                full_name=(m.user.full_name if m.is_registered and m.user else None),
                 unregistered_name=m.unregistered_name,
                 unregistered_role_description=m.unregistered_role_description,
             )
@@ -259,6 +261,7 @@ def _build_team_read_for_discovery(
                 id=m.id,
                 is_registered=m.is_registered,
                 user_id=m.user_id,
+                full_name=(m.user.full_name if m.is_registered and m.user else None),
                 unregistered_name=m.unregistered_name,
                 unregistered_role_description=m.unregistered_role_description,
             )
@@ -329,11 +332,19 @@ async def list_my_teams(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """List all teams the current user leads."""
+    """List all teams the current user leads or is a registered member of."""
     teams = (
         db.query(Team)
         .options(selectinload(Team.members), selectinload(Team.job_postings))
-        .filter(Team.leader_id == current_user.id)
+        .join(TeamMember, TeamMember.team_id == Team.id)
+        .filter(
+            or_(
+                Team.leader_id == current_user.id,
+                (TeamMember.user_id == current_user.id)
+                & (TeamMember.is_registered.is_(True)),
+            )
+        )
+        .distinct()
         .all()
     )
     return [_build_team_read(t) for t in teams]

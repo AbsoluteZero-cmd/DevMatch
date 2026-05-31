@@ -1,5 +1,6 @@
 import { Navbar } from "@/components/navbar"
 import { UnreadProvider } from "@/contexts/unread-context"
+import { RequireAuth } from "@/components/require-auth"
 
 export default function MainLayout({
   children,
@@ -7,11 +8,13 @@ export default function MainLayout({
   children: React.ReactNode
 }) {
   return (
-    <UnreadProvider>
-      <div className="min-h-screen bg-background pb-20 md:pb-0">
-        <Navbar />
-        {children}
-      </div>
-    </UnreadProvider>
+    <RequireAuth>
+      <UnreadProvider>
+        <div className="min-h-screen bg-background pb-20 md:pb-0">
+          <Navbar />
+          {children}
+        </div>
+      </UnreadProvider>
+    </RequireAuth>
   )
 }

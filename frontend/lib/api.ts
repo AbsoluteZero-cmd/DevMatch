@@ -369,6 +369,7 @@ export interface TeamSummary {
 		id: number;
 		is_registered: boolean;
 		user_id: number | null;
+		full_name: string | null;
 		unregistered_name: string | null;
 		unregistered_role_description: string | null;
 	}>;
@@ -624,6 +625,81 @@ export async function acceptApplication<T = DeveloperApplicationOut>(
 			body: JSON.stringify(offerData),
 		},
 	);
+}
+
+export interface ApplicantSummary {
+	user_id: number;
+	full_name: string | null;
+	profile_id: string | null;
+	roles: string[];
+	skills: string[];
+}
+
+export interface PostingApplicationOut {
+	id: number;
+	job_posting_id: string;
+	applicant_id: number;
+	status: ApplicationStatus;
+	created_at: string;
+	applicant: ApplicantSummary;
+}
+
+export interface PostingApplicationsResponse {
+	job_posting_id: string;
+	job_posting_title: string;
+	applications: PostingApplicationOut[];
+}
+
+export async function getPostingApplications(
+	jobPostingId: string,
+): Promise<PostingApplicationsResponse> {
+	return fetchProtectedApi<PostingApplicationsResponse>(
+		`/applications/postings/${jobPostingId}/applications`,
+	);
+}
+
+export interface DeveloperProfileRole {
+	name: string;
+	tier: string;
+	skill_level: string;
+}
+
+export interface DeveloperProfileEducation {
+	institution_name: string;
+	degree: string | null;
+	major: string | null;
+	graduation_year: number | null;
+}
+
+export interface DeveloperProfileProject {
+	project_name: string;
+	role: string | null;
+	duration: string | null;
+	technologies_used: string | null;
+	description: string | null;
+}
+
+export interface DeveloperProfileLink {
+	url_type: string;
+	url_str: string;
+}
+
+export interface DeveloperProfileView {
+	profile_id: string;
+	user_id: number | null;
+	full_name: string | null;
+	years_experience: number | null;
+	roles: DeveloperProfileRole[];
+	skills: string[];
+	education: DeveloperProfileEducation[];
+	projects: DeveloperProfileProject[];
+	links: DeveloperProfileLink[];
+}
+
+export async function getDeveloperProfile(
+	profileId: string,
+): Promise<DeveloperProfileView> {
+	return fetchProtectedApi<DeveloperProfileView>(`/developers/${profileId}`);
 }
 
 // ---------------------------------------------------------------------------

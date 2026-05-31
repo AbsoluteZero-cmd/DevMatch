@@ -32,11 +32,22 @@ class DeveloperApplicationOut(BaseModel):
 
 @router.post("/apply/{job_posting_id}", response_model=DeveloperApplicationOut)
 def apply_to_job(
-    job_posting_id: int,
+    job_posting_id: str,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
     # Apply for a job posting
+
+    if current_user.role != UserRole.DEVELOPER:
+        raise HTTPException(
+            status_code=403, detail="Only developers can apply to job postings"
+        )
+
+    if db.query(TeamMember).filter(TeamMember.user_id == current_user.id).first():
+        raise HTTPException(
+            status_code=400,
+            detail="You are already a member of a team and cannot apply to job postings.",
+        )
 
     job_posting = db.query(JobPosting).filter(JobPosting.id == job_posting_id).first()
     if not job_posting:
@@ -111,6 +122,104 @@ def get_my_applications(
     return applications
 
 
+class ApplicantSummary(BaseModel):
+    user_id: int
+    full_name: Optional[str] = None
+    profile_id: Optional[uuid.UUID] = None
+    roles: List[str] = []
+    skills: List[str] = []
+
+
+class ApplicationDetailOut(BaseModel):
+    id: int
+    job_posting_id: uuid.UUID
+    applicant_id: int
+    status: ApplicationStatus
+    created_at: datetime
+    applicant: ApplicantSummary
+
+
+class PostingApplicationsOut(BaseModel):
+    job_posting_id: uuid.UUID
+    job_posting_title: str
+    applications: List[ApplicationDetailOut]
+
+
+# FR-62: a team leader sees every application for one of their job postings
+@router.get(
+    "/postings/{job_posting_id}/applications",
+    response_model=PostingApplicationsOut,
+)
+def list_posting_applications(
+    job_posting_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    job_posting = db.query(JobPosting).filter(JobPosting.id == job_posting_id).first()
+    if not job_posting:
+        raise HTTPException(status_code=404, detail="Job posting not found")
+
+    is_team_member = (
+        db.query(TeamMember)
+        .filter(
+            TeamMember.team_id == job_posting.team_id,
+            TeamMember.user_id == current_user.id,
+        )
+        .first()
+    )
+    if not (
+        current_user.role in [UserRole.ADMIN, UserRole.TEAM_LEADER] and is_team_member
+    ):
+        raise HTTPException(
+            status_code=403,
+            detail="Not authorized to view applications for this job posting",
+        )
+
+    applications = (
+        db.query(DeveloperApplication)
+        .filter(DeveloperApplication.job_posting_id == job_posting_id)
+        .order_by(DeveloperApplication.created_at.desc())
+        .all()
+    )
+
+    items: List[ApplicationDetailOut] = []
+    for application in applications:
+        user = db.query(User).filter(User.id == application.applicant_id).first()
+        profile = user.profile if user else None
+        roles = (
+            [pr.role.name for pr in profile.profile_roles if pr.role] if profile else []
+        )
+        skills = (
+            [pst.skill_tag.name for pst in profile.profile_skill_tags if pst.skill_tag]
+            if profile
+            else []
+        )
+        items.append(
+            ApplicationDetailOut(
+                id=application.id,
+                job_posting_id=application.job_posting_id,
+                applicant_id=application.applicant_id,
+                status=application.status,
+                created_at=application.created_at,
+                applicant=ApplicantSummary(
+                    user_id=application.applicant_id,
+                    full_name=(profile.full_name if profile else None)
+                    or (user.full_name if user else None),
+                    profile_id=profile.id if profile else None,
+                    roles=roles,
+                    skills=skills,
+                ),
+            )
+        )
+
+    return PostingApplicationsOut(
+        job_posting_id=job_posting.id,
+        job_posting_title=job_posting.title,
+        applications=items,
+    )
+
+
+# details view for team leaders and admins, also marks application as reviewing when viewed for the first time by team leader (FR-62)
 @router.get("/applications/{application_id}", response_model=DeveloperApplicationOut)
 def get_application(
     application_id: int,
@@ -215,6 +324,21 @@ async def decline_application(
             status_code=403, detail="Not authorized to decline this application"
         )
 
+    # If this application had already been accepted (an offer was sent), cancel
+    # that offer too so the developer's inbox no longer shows a live Join.
+    related_offer = (
+        db.query(Offer)
+        .filter(
+            Offer.job_posting_id == application.job_posting_id,
+            Offer.recipient_id == application.applicant_id,
+            Offer.status.in_([OfferStatus.PENDING, OfferStatus.INTERESTED]),
+        )
+        .first()
+    )
+    if related_offer:
+        related_offer.status = OfferStatus.CANCELLED
+        related_offer.responded_at = datetime.utcnow()
+
     application.status = ApplicationStatus.DECLINED
     db.commit()
     db.refresh(application)
@@ -298,12 +422,23 @@ async def accept_application(
 
     previous_chat = (
         db.query(ChatRoom)
-        .join(ChatParticipant, ChatParticipant.chat_room_id == ChatRoom.id)
+        .join(ChatParticipant, ChatParticipant.room_id == ChatRoom.id)
         .filter(
             ChatParticipant.user_id == application.applicant_id,
             ChatRoom.name == f"Application {application.job_posting.title} Chat",
         )
         .first()
+    )
+
+    participant = (
+        db.query(ChatParticipant)
+        .filter(
+            ChatParticipant.room_id == previous_chat.id,
+            ChatParticipant.user_id == application.applicant_id,
+        )
+        .first()
+        if previous_chat
+        else None
     )
 
     # FR-50 FR-51: Create the formal offer valid for 7 days
@@ -316,7 +451,11 @@ async def accept_application(
         proposed_role=offer_data.proposed_role,
         expected_contributions=offer_data.expected_contributions,
         compensation_details=offer_data.compensation_details,
-        status=OfferStatus.PENDING,
+        # Accepted applications skip the "interested" step: the developer is
+        # already vetted, so the offer starts as INTERESTED and the inbox shows
+        # Join / Cancel Join directly (no Interested button).
+        status=OfferStatus.INTERESTED,
+        responded_at=datetime.utcnow(),
         expires_at=datetime.utcnow() + timedelta(days=7),  # FR-51 7 day validity
         chat_room_id=(
             previous_chat.id if previous_chat else None

@@ -9,7 +9,8 @@ import { Card, CardContent } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Separator } from "@/components/ui/separator"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { discoverTeams, applyToJob, type TeamDiscoveryRead } from "@/lib/api"
+import { discoverTeams, applyToJob, getCurrentUser, type TeamDiscoveryRead } from "@/lib/api"
+import { DeveloperOfferSearch } from "@/components/developer-offer-search"
 import {
   Briefcase,
   Filter,
@@ -125,6 +126,19 @@ export default function SearchPage() {
   const [appliedPostingIds, setAppliedPostingIds] = useState<Set<string>>(new Set())
   const [applyLoadingId, setApplyLoadingId] = useState<string | null>(null)
   const [applyMessage, setApplyMessage] = useState<{ postingId: string; text: string; isError: boolean } | null>(null)
+  const [isLeader, setIsLeader] = useState(false)
+
+  useEffect(() => {
+    let cancelled = false
+    getCurrentUser<{ role?: string }>()
+      .then((u) => {
+        if (!cancelled) setIsLeader(u.role === "TEAM_LEADER" || u.role === "ADMIN")
+      })
+      .catch(() => {})
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   useEffect(() => {
     let isActive = true
@@ -300,7 +314,7 @@ export default function SearchPage() {
                       {filter}
                     </Button>
                   ))
-                : ["Visible", "Hidden"].map((filter) => (
+                : isLeader ? null : ["Visible", "Hidden"].map((filter) => (
                     <Button
                       key={filter}
                       type="button"
@@ -339,6 +353,9 @@ export default function SearchPage() {
           </div>
 
           <TabsContent value="developers" className="mt-6 space-y-4">
+            {isLeader && <DeveloperOfferSearch query={query} />}
+            {!isLeader && (
+            <>
             <div className="flex items-center justify-between">
               <p className="text-sm text-muted-foreground">
                 {filteredDevelopers.length} developer
@@ -414,6 +431,8 @@ export default function SearchPage() {
                 </Card>
               ))}
             </div>
+            </>
+            )}
           </TabsContent>
 
           <TabsContent value="teams" className="mt-6 space-y-4">

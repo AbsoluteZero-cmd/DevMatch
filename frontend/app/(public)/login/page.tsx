@@ -26,6 +26,19 @@ export default function LoginPage() {
 	const [isLoading, setIsLoading] = useState(false);
 	const [error, setError] = useState('');
 	const [touched, setTouched] = useState({ email: false, password: false });
+	const [authRequired, setAuthRequired] = useState(false);
+	const [redirectPath, setRedirectPath] = useState('/dashboard');
+
+	useEffect(() => {
+		if (typeof window === 'undefined') return;
+		const params = new URLSearchParams(window.location.search);
+		setAuthRequired(params.get('authRequired') === '1');
+		const redirect = params.get('redirect');
+		// only allow internal redirects to avoid open-redirect issues
+		if (redirect && redirect.startsWith('/') && !redirect.startsWith('//')) {
+			setRedirectPath(redirect);
+		}
+	}, []);
 
 	const isEmailValid = email.includes('@') && email.includes('.');
 	const isPasswordValid = password.length >= 1;
@@ -40,7 +53,7 @@ export default function LoginPage() {
 
 		try {
 			await login({ email, password });
-			router.push('/dashboard');
+			router.push(redirectPath);
 		} catch {
 			setError('Login failed. Please check your credentials and try again.');
 		} finally {
@@ -50,9 +63,9 @@ export default function LoginPage() {
 
 	useEffect(() => {
 		if (user) {
-			router.push('/dashboard');
+			router.push(redirectPath);
 		}
-	}, [user, router]);
+	}, [user, router, redirectPath]);
 
 	if (user) return null;
 
@@ -82,6 +95,13 @@ export default function LoginPage() {
 					</CardHeader>
 					<CardContent>
 						<form onSubmit={handleSubmit} className='space-y-6'>
+							{authRequired && !error && (
+								<div className='flex items-center gap-2 rounded-lg border border-amber-500/50 bg-amber-500/10 p-3 text-sm text-amber-700'>
+									<AlertCircle className='h-4 w-4' />
+									Authorization required. Please sign in to continue.
+								</div>
+							)}
+
 							{error && (
 								<div className='flex items-center gap-2 rounded-lg border border-destructive/50 bg-destructive/10 p-3 text-sm text-destructive'>
 									<AlertCircle className='h-4 w-4' />
