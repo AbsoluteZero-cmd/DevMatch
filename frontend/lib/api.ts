@@ -520,6 +520,17 @@ export async function getRecommendations(
 	return fetchProtectedApi<CandidateRead[]>(path);
 }
 
+// manually generate AI candidate recommendations for a posting
+export async function refreshRecommendations(
+	teamId: string,
+	postingId: string,
+): Promise<{ generated: number }> {
+	return fetchProtectedApi<{ generated: number }>(
+		`/teams/${teamId}/postings/${postingId}/recommendations/refresh`,
+		{ method: 'POST' },
+	);
+}
+
 export interface TeamDiscoveryRead {
 	id: string;
 	name: string;

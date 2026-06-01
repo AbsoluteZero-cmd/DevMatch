@@ -32,6 +32,7 @@ import {
 	getCurrentUser,
 	getMyApplications,
 	getRecommendations,
+	refreshRecommendations,
 	getTeamCapability,
 	listMyTeams,
 	sendOffer,
@@ -54,6 +55,7 @@ import {
 	Loader2,
 	Search,
 	Send,
+	Sparkles,
 	Rocket,
 	Users,
 	XCircle,
@@ -186,6 +188,7 @@ function LeaderDashboard() {
 	const [developers, setDevelopers] = useState<Developer[]>([]);
 	const [developersLoading, setDevelopersLoading] = useState(false);
 	const [developersError, setDevelopersError] = useState<string | null>(null);
+	const [generatingRecs, setGeneratingRecs] = useState(false);
 
 	const [offerTarget, setOfferTarget] = useState<Developer | null>(null);
 	const [form, setForm] = useState<OfferForm>(emptyOfferForm(null));
@@ -372,6 +375,50 @@ function LeaderDashboard() {
 			cancelled = true;
 		};
 	}, [selectedTeamId, selectedPostingId, filterLevel, filterTag]);
+
+	const loadRecommendations = async () => {
+		if (!selectedTeamId || !selectedPostingId) return;
+		setDevelopersLoading(true);
+		setDevelopersError(null);
+		try {
+			const recs = await getRecommendations(
+				selectedTeamId,
+				selectedPostingId,
+				filterLevel || undefined,
+				filterTag || undefined,
+			);
+			setDevelopers(recs.map(mapRecommendation));
+		} catch (err) {
+			const status = (err as { status?: number })?.status;
+			setDevelopers([]);
+			setDevelopersError(
+				status === 404
+					? 'Select an open posting to view recommendations.'
+					: 'Could not load recommendations.',
+			);
+		} finally {
+			setDevelopersLoading(false);
+		}
+	};
+
+	const handleGenerateRecommendations = async () => {
+		if (!selectedTeamId || !selectedPostingId) return;
+		setGeneratingRecs(true);
+		setDevelopersError(null);
+		try {
+			await refreshRecommendations(selectedTeamId, selectedPostingId);
+			await loadRecommendations();
+		} catch (err) {
+			const status = (err as { status?: number })?.status;
+			setDevelopersError(
+				status === 400
+					? 'This posting is closed, so suggestions cannot be generated.'
+					: 'Could not generate AI suggestions.',
+			);
+		} finally {
+			setGeneratingRecs(false);
+		}
+	};
 
 	const openOffer = (developer: Developer) => {
 		setOfferTarget(developer);
@@ -770,7 +817,9 @@ function LeaderDashboard() {
 															className='inline-flex items-center gap-1.5 rounded-full border border-border bg-background px-3 py-1 text-xs'
 														>
 															<span className='font-medium text-foreground'>
-																{m.full_name ?? m.unregistered_name ?? `Member ${m.id}`}
+																{m.full_name ??
+																	m.unregistered_name ??
+																	`Member ${m.id}`}
 															</span>
 															<span className='text-muted-foreground'>
 																{m.unregistered_role_description ??
@@ -861,7 +910,10 @@ function LeaderDashboard() {
 														size='sm'
 														variant='outline'
 														className='w-full gap-2'
-														onClick={() => posting.status === 'OPEN' && handleClosePosting(posting.id)}
+														onClick={() =>
+															posting.status === 'OPEN' &&
+															handleClosePosting(posting.id)
+														}
 														disabled={closingPostingId === posting.id}
 													>
 														{closingPostingId === posting.id ? (
@@ -977,6 +1029,26 @@ function LeaderDashboard() {
 											/>
 										</div>
 									</div>
+									<Button
+										type='button'
+										className='w-full gap-2'
+										onClick={handleGenerateRecommendations}
+										disabled={
+											!selectedPostingId || generatingRecs || developersLoading
+										}
+									>
+										{generatingRecs ? (
+											<>
+												<Loader2 className='h-4 w-4 animate-spin' />
+												Generating suggestions...
+											</>
+										) : (
+											<>
+												<Sparkles className='h-4 w-4' />
+												Generate AI Suggestions
+											</>
+										)}
+									</Button>
 								</div>
 							)}
 
@@ -991,7 +1063,9 @@ function LeaderDashboard() {
 									</div>
 								) : developers.length === 0 ? (
 									<div className='rounded-2xl border border-dashed border-border bg-card/60 p-4 text-sm text-muted-foreground'>
-										Select a team and posting to view recommended developers.
+										{selectedPostingId
+											? 'No suggestions yet. Click “Generate AI Suggestions” to find matching developers for this posting.'
+											: 'Select a team and posting to view recommended developers.'}
 									</div>
 								) : (
 									developers.map((developer) => (
@@ -1286,7 +1360,9 @@ function LeaderDashboard() {
 										>
 											<div>
 												<div className='text-sm font-medium'>
-													{m.full_name ?? m.unregistered_name ?? `Member ${m.id}`}
+													{m.full_name ??
+														m.unregistered_name ??
+														`Member ${m.id}`}
 												</div>
 												<div className='text-xs text-muted-foreground'>
 													{m.unregistered_role_description ??
