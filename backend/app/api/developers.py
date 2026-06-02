@@ -17,6 +17,7 @@ from app.models.profile import (
     Profile,
     ProfileRole,
     ProfileSkillTag,
+    SkillLevel,
 )
 from app.models.offer import Offer
 
@@ -105,7 +106,7 @@ def list_developers(
                 skill_level=pr.skill_level.value,
             )
             for pr in profile.profile_roles
-            if pr.role and not pr.is_hidden
+            if pr.role and pr.skill_level != SkillLevel.BEGINNER and not pr.is_hidden
         ]
         skills = [
             pst.skill_tag.name
