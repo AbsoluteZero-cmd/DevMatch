@@ -68,6 +68,7 @@ class TeamMember(Base):
     user_id: Mapped[Optional[int]] = mapped_column(
         ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )
+    assigned_role: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     # Unregistered member fields (FR-37)
     unregistered_name: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     unregistered_role_description: Mapped[Optional[str]] = mapped_column(

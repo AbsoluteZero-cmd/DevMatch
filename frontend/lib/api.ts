@@ -386,6 +386,7 @@ export interface TeamSummary {
 		id: number;
 		is_registered: boolean;
 		user_id: number | null;
+		assigned_role: string | null;
 		full_name: string | null;
 		unregistered_name: string | null;
 		unregistered_role_description: string | null;
@@ -467,6 +468,22 @@ export async function closeJobPosting<T = unknown>(
 ): Promise<T> {
 	return fetchProtectedApi<T>(`/teams/${teamId}/postings/${postingId}/close`, {
 		method: 'POST',
+	});
+}
+
+export interface UpdateTeamMemberRolePayload {
+	assigned_role: string;
+}
+
+export async function updateTeamMemberRole<T = TeamSummary>(
+	teamId: string,
+	memberId: number,
+	payload: UpdateTeamMemberRolePayload,
+): Promise<T> {
+	return fetchProtectedApi<T>(`/teams/${teamId}/members/${memberId}/assigned-role`, {
+		method: 'PATCH',
+		headers: { 'Content-Type': 'application/json' },
+		body: JSON.stringify(payload),
 	});
 }
 

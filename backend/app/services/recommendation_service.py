@@ -156,49 +156,46 @@ def _get_team_avg_seniority(team: Team, db: Session) -> float:
     return (total / count) if count > 0 else 0.3
 
 
+def _get_member_assigned_role_score(member: TeamMember, db: Session) -> Optional[int]:
+    """Return the score for the member's assigned role, or None if unavailable."""
+    assigned_role = getattr(member, "assigned_role", None)
+    if not assigned_role:
+        return None
+
+    if member.is_registered and member.user_id:
+        profile = (
+            db.query(Profile)
+            .options(selectinload(Profile.profile_roles).selectinload(ProfileRole.role))
+            .filter(Profile.user_id == member.user_id)
+            .first()
+        )
+        if not profile or not profile.profile_roles:
+            return None
+
+        for role_entry in profile.profile_roles:
+            if role_entry.role.name == assigned_role:
+                return role_entry.skill_score
+        return None
+
+    return getattr(member, "unregistered_skill_score", None)
+
+
 def compute_team_capability(team_id: str, db: Session) -> dict:
     """
-    Compute a team's capability profile per role and an overall score.
-    Returns a dict with role -> 0-100 score and an overall average (0-100).
-    This is the FR-40 implementation: it aggregates registered member profiles
-    and unregistered declared scores (50% weight) using existing helpers.
+    Compute the team's overall capability label from each member's assigned role.
+
+    The score is the average of the members' role-specific skill scores, and the
+    API returns only the resulting label to avoid exposing numeric scores.
     """
     team = (
         db.query(Team)
-        .options(selectinload(Team.members), selectinload(Team.job_postings))
+        .options(selectinload(Team.members))
         .filter(Team.id == team_id)
         .first()
     )
     if not team:
         raise ValueError(f"Team {team_id} not found")
 
-    roles: set[str] = set()
-
-    # Gather roles from registered members' profiles
-    for member in team.members:
-        if member.is_registered and member.user_id:
-            profile = (
-                db.query(Profile)
-                .options(
-                    selectinload(Profile.profile_roles).selectinload(ProfileRole.role)
-                )
-                .filter(Profile.user_id == member.user_id)
-                .first()
-            )
-            if profile:
-                for pr in profile.profile_roles:
-                    roles.add(pr.role.name)
-        else:
-            # Unregistered member declared role
-            if getattr(member, "unregistered_role_name", None):
-                roles.add(member.unregistered_role_name)
-
-    # Also include roles that the team is recruiting for
-    for p in getattr(team, "job_postings", []):
-        if getattr(p, "required_role", None):
-            roles.add(p.required_role)
-
-    # Map each role numeric score to a label and return labels only (no numeric scores)
     def _score_to_label(score: int) -> str:
         if score <= LEVEL_TO_MAX_SCORE["Beginner"]:
             return "Beginner"
@@ -208,24 +205,20 @@ def compute_team_capability(team_id: str, db: Session) -> dict:
             return "Advanced"
         return "Expert"
 
-    role_labels: dict[str, str] = {}
-    numeric_values: list[int] = []
-    for role in roles:
-        score = int(round(_get_team_avg_score_for_role(team, role, db)))
-        label = _score_to_label(score)
-        role_labels[role] = label
-        numeric_values.append(score)
-
+    member_scores = [
+        score
+        for member in team.members
+        if (score := _get_member_assigned_role_score(member, db)) is not None
+    ]
     overall_numeric = (
-        int(round(sum(numeric_values) / len(numeric_values))) if numeric_values else 0
+        int(round(sum(member_scores) / len(member_scores))) if member_scores else 0
     )
-    overall_label = _score_to_label(overall_numeric)
-
+    # return _score_to_label(overall_numeric)
     return {
         "team_id": str(team.id),
         "member_count": len(team.members),
-        "roles": role_labels,
-        "overall_label": overall_label,
+        # "roles": role_labels,
+        "overall_label": _score_to_label(overall_numeric),
     }
 
 

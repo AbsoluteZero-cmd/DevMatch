@@ -35,6 +35,7 @@ import {
 	refreshRecommendations,
 	getTeamCapability,
 	listMyTeams,
+	updateTeamMemberRole,
 	sendOffer,
 	updateJobPosting,
 	addUnregisteredMember,
@@ -217,6 +218,7 @@ function LeaderDashboard() {
 	const [memberLevel, setMemberLevel] = useState('Intermediate');
 	const [memberExperience, setMemberExperience] = useState('');
 	const [membersSubmitting, setMembersSubmitting] = useState(false);
+	const [updatingMemberId, setUpdatingMemberId] = useState<number | null>(null);
 	const [membersError, setMembersError] = useState<string | null>(null);
 
 	useEffect(() => {
@@ -270,6 +272,7 @@ function LeaderDashboard() {
 		}
 		return 'Team Leader';
 	}, [currentUser, selectedTeam]);
+	const isTeamLeader = currentUser?.id === selectedTeam?.leader_id;
 
 	const overallLevel = capability?.overall_label ?? 'N/A';
 	const capabilityPercent =
@@ -610,6 +613,28 @@ function LeaderDashboard() {
 		}
 	};
 
+	const handleUpdateMemberRole = async (memberId: number, assignedRole: string) => {
+		if (!selectedTeam) return;
+		setUpdatingMemberId(memberId);
+		setMembersError(null);
+		try {
+			await updateTeamMemberRole(selectedTeam.id, memberId, {
+				assigned_role: assignedRole,
+			});
+			await refreshTeams();
+			const refreshedCapability = await getTeamCapability(selectedTeam.id).catch(
+				() => null,
+			);
+			setCapability(refreshedCapability);
+		} catch (err) {
+			setMembersError(
+				err instanceof Error ? err.message : 'Failed to update member role',
+			);
+		} finally {
+			setUpdatingMemberId(null);
+		}
+	};
+
 	const handleSubmit = async (event: React.FormEvent) => {
 		event.preventDefault();
 		if (!offerTarget) return;
@@ -812,22 +837,53 @@ function LeaderDashboard() {
 												</p>
 												<div className='mt-2 flex flex-wrap gap-2'>
 													{selectedTeam.members.map((m) => (
-														<span
+														<div
 															key={m.id}
-															className='inline-flex items-center gap-1.5 rounded-full border border-border bg-background px-3 py-1 text-xs'
+															className='inline-flex flex-wrap items-center gap-2 rounded-full border border-border bg-background px-3 py-2 text-xs'
 														>
-															<span className='font-medium text-foreground'>
-																{m.full_name ??
-																	m.unregistered_name ??
-																	`Member ${m.id}`}
-															</span>
-															<span className='text-muted-foreground'>
-																{m.unregistered_role_description ??
-																	(m.is_registered ? 'Registered' : 'Member')}
-															</span>
-														</span>
+															<div className='flex flex-col gap-0.5'>
+																<span className='font-medium text-foreground'>
+																	{m.full_name ??
+																		m.unregistered_name ??
+																		`Member ${m.id}`}
+																</span>
+																<span className='text-muted-foreground'>
+																	{m.unregistered_role_description ??
+																		(m.is_registered ? 'Registered' : 'Member')}
+																</span>
+															</div>
+															{isTeamLeader ? (
+																<Select
+																	value={m.assigned_role ?? ''}
+																	onValueChange={(value) =>
+																		handleUpdateMemberRole(m.id, value)
+																	}
+																	disabled={updatingMemberId === m.id}
+																>
+																	<SelectTrigger className='h-8 w-48 rounded-full border-border bg-background px-3 text-xs'>
+																		<SelectValue placeholder='Assign role' />
+																	</SelectTrigger>
+																	<SelectContent>
+																		{roleOptions.map((role) => (
+																			<SelectItem key={role} value={role}>
+																				{role}
+																			</SelectItem>
+																		))}
+																	</SelectContent>
+																</Select>
+															) : (
+																<span className='rounded-full border border-border bg-muted px-2.5 py-1 text-[11px] text-muted-foreground'>
+																	{m.assigned_role ?? 'No role assigned'}
+																</span>
+															)}
+														</div>
 													))}
 												</div>
+												{membersError && (
+													<p className='mt-2 text-xs text-destructive'>
+														{membersError}
+													</p>
+												)}
 											</div>
 										)}
 									</div>

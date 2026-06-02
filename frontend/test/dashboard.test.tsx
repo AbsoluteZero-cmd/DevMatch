@@ -18,6 +18,7 @@ const mockTeams: TeamSummary[] = [
         id: 100,
         is_registered: true,
         user_id: 1,
+        assigned_role: "Frontend Engineer",
         unregistered_name: null,
         unregistered_role_description: null,
       },
@@ -25,6 +26,7 @@ const mockTeams: TeamSummary[] = [
         id: 101,
         is_registered: false,
         user_id: null,
+        assigned_role: "Design Lead",
         unregistered_name: "Bob",
         unregistered_role_description: "Designer",
       },
@@ -85,6 +87,7 @@ const mockCreateJobPosting = vi.fn();
 const mockCloseJobPosting = vi.fn();
 const mockSendOffer = vi.fn();
 const mockUpdateJobPosting = vi.fn();
+const mockUpdateTeamMemberRole = vi.fn();
 
 vi.mock("@/lib/api", () => ({
   listMyTeams: (...args: unknown[]) => mockListMyTeams(...args),
@@ -98,6 +101,7 @@ vi.mock("@/lib/api", () => ({
   closeJobPosting: (...args: unknown[]) => mockCloseJobPosting(...args),
   sendOffer: (...args: unknown[]) => mockSendOffer(...args),
   updateJobPosting: (...args: unknown[]) => mockUpdateJobPosting(...args),
+  updateTeamMemberRole: (...args: unknown[]) => mockUpdateTeamMemberRole(...args),
 }));
 
 vi.mock("sonner", () => ({
@@ -117,6 +121,7 @@ function setupMocks(options: { teams?: TeamSummary[] | null; error?: string } = 
   mockCloseJobPosting.mockResolvedValue({});
   mockSendOffer.mockResolvedValue({});
   mockUpdateJobPosting.mockResolvedValue({});
+  mockUpdateTeamMemberRole.mockResolvedValue({});
 }
 
 describe("Dashboard — FR-35 to FR-40", () => {

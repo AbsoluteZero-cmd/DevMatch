@@ -650,9 +650,12 @@ async def join_team(
             team_id=offer.team_id,
             user_id=current_user.id,
             is_registered=True,
+            assigned_role=offer.proposed_role,
             joined_at=datetime.utcnow(),
         )
         db.add(team_member)
+    elif not team_member.assigned_role:
+        team_member.assigned_role = offer.proposed_role
 
     # FR-55-b: When an offer is accepted, automatically close the associated job posting
     if offer.job_posting_id:

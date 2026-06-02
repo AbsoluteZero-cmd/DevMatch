@@ -76,6 +76,10 @@ class JobPostingUpdate(BaseModel):
     is_public: Optional[bool] = None
 
 
+class TeamMemberRoleUpdate(BaseModel):
+    assigned_role: str
+
+
 # --- Read schemas ---
 
 
@@ -83,6 +87,7 @@ class TeamMemberRead(BaseModel):
     id: int
     is_registered: bool
     user_id: Optional[int] = None
+    assigned_role: Optional[str] = None
     full_name: Optional[str] = None
     unregistered_name: Optional[str] = None
     unregistered_role_description: Optional[str] = None
@@ -155,7 +160,7 @@ class CandidateRead(BaseModel):
 class TeamCapabilityRead(BaseModel):
     team_id: UUID
     member_count: int
-    roles: dict[str, str]
+    # roles: dict[str, str]
     overall_label: str
 
     class Config:
@@ -190,6 +195,7 @@ def _build_team_read(team: Team) -> TeamRead:
                 id=m.id,
                 is_registered=m.is_registered,
                 user_id=m.user_id,
+                assigned_role=m.assigned_role,
                 full_name=(m.user.full_name if m.is_registered and m.user else None),
                 unregistered_name=m.unregistered_name,
                 unregistered_role_description=m.unregistered_role_description,
@@ -261,6 +267,7 @@ def _build_team_read_for_discovery(
                 id=m.id,
                 is_registered=m.is_registered,
                 user_id=m.user_id,
+                assigned_role=m.assigned_role,
                 full_name=(m.user.full_name if m.is_registered and m.user else None),
                 unregistered_name=m.unregistered_name,
                 unregistered_role_description=m.unregistered_role_description,
@@ -468,6 +475,7 @@ async def add_unregistered_member(
             unregistered_role_description=payload.role_description,
             unregistered_experience_description=payload.experience_description,
             unregistered_role_name=payload.role,
+            assigned_role=payload.role,
             unregistered_skill_level=payload.skill_level,
             unregistered_skill_score=numeric,
         )
@@ -515,6 +523,41 @@ async def remove_member(
         logging.getLogger(__name__).warning(
             "Recommendation refresh failed after removing member"
         )
+
+
+@router.patch("/{team_id}/members/{member_id}/assigned-role", response_model=TeamRead)
+async def update_member_assigned_role(
+    team_id: str,
+    member_id: int,
+    payload: TeamMemberRoleUpdate,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Update a team member's assigned role. Leader only."""
+    _require_team_leader(team_id, current_user, db)
+
+    if payload.assigned_role not in VALID_ROLES:
+        raise HTTPException(
+            status_code=422, detail=f"Invalid role. Choose from: {VALID_ROLES}"
+        )
+
+    member = (
+        db.query(TeamMember)
+        .filter(
+            TeamMember.id == member_id,
+            TeamMember.team_id == team_id,
+        )
+        .first()
+    )
+    if not member:
+        raise HTTPException(status_code=404, detail="Member not found")
+
+    member.assigned_role = payload.assigned_role
+    if not member.is_registered:
+        member.unregistered_role_name = payload.assigned_role
+    db.commit()
+
+    return _build_team_read(_load_team(team_id, db))
 
 
 # ---------------------------------------------------------------------------
@@ -790,7 +833,7 @@ async def get_team_capability(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """Return computed team capability per role and overall score (FR-40).
+    """Return the team's overall capability (FR-40).
 
     Access: team leader and registered team members. PRIVATE team visibility
     will restrict non-members from viewing capability.
@@ -810,4 +853,4 @@ async def get_team_capability(
     except ValueError:
         raise HTTPException(status_code=404, detail="Team not found")
 
-    return data
+    return TeamCapabilityRead(**data)
