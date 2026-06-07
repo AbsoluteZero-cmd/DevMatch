@@ -494,12 +494,20 @@ export default function DashboardPage() {
 
   const openMembers = () => {
     setMembersError(null)
+    setMemberName("")
+    setMemberRole("")
+    setMemberExperience("")
+    setMemberLevel("Intermediate")
     setMembersOpen(true)
   }
 
   const submitAddMember = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!selectedTeam) return
+    if (!memberName.trim()) {
+      setMembersError("Member name is required.")
+      return
+    }
     setMembersSubmitting(true)
     setMembersError(null)
     try {
@@ -1174,11 +1182,11 @@ export default function DashboardPage() {
             <form onSubmit={submitAddMember} className="space-y-3">
               <div className="space-y-1.5">
                 <Label>Full name</Label>
-                <Input value={memberName} onChange={(e) => setMemberName(e.target.value)} />
+                <Input value={memberName} onChange={(e) => setMemberName(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') e.preventDefault() }} />
               </div>
               <div className="space-y-1.5">
                 <Label>Role</Label>
-                <Input value={memberRole} onChange={(e) => setMemberRole(e.target.value)} />
+                <Input value={memberRole} onChange={(e) => setMemberRole(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') e.preventDefault() }} />
               </div>
               <div className="space-y-1.5">
                 <Label>Experience description</Label>
@@ -1187,6 +1195,7 @@ export default function DashboardPage() {
                   rows={3}
                   value={memberExperience}
                   onChange={(e) => setMemberExperience(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === 'Enter') e.preventDefault() }}
                 />
               </div>
               <div className="space-y-1.5">
@@ -1199,11 +1208,13 @@ export default function DashboardPage() {
                 </Select>
               </div>
               {membersError && <p className="text-sm text-destructive">{membersError}</p>}
-              <div className="flex justify-end gap-2">
-                <Button variant="outline" onClick={() => setMembersOpen(false)} disabled={membersSubmitting}>Close</Button>
+              <div className="flex justify-end">
                 <Button type="submit" disabled={membersSubmitting}>{membersSubmitting ? 'Adding...' : 'Add member'}</Button>
               </div>
             </form>
+            <div className="flex justify-end">
+              <Button variant="outline" onClick={() => setMembersOpen(false)} disabled={membersSubmitting}>Close</Button>
+            </div>
           </div>
         </DialogContent>
       </Dialog>

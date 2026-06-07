@@ -8,7 +8,7 @@ from typing import List, Optional
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel
+from pydantic import BaseModel, validator
 from sqlalchemy.orm import Session, selectinload
 from sqlalchemy import or_
 
@@ -59,6 +59,12 @@ class UnregisteredMemberAdd(BaseModel):
     experience_description: Optional[str] = None
     role: str
     skill_level: str
+
+    @validator("name")
+    def name_not_blank(cls, v: str) -> str:
+        if not v.strip():
+            raise ValueError("name must not be blank")
+        return v.strip()
 
 
 class JobPostingCreate(BaseModel):
@@ -442,6 +448,8 @@ async def add_unregistered_member(
 ):
     """Add an unregistered (non-account) member to the team (FR-37)."""
     _require_team_leader(team_id, current_user, db)
+    if not payload.name.strip():
+        raise HTTPException(status_code=422, detail="Member name must not be blank")
     # if payload.role not in VALID_ROLES:
     #     raise HTTPException(status_code=422, detail=f"Invalid role. Choose from: {VALID_ROLES}")
     # if payload.skill_level not in VALID_LEVELS:
