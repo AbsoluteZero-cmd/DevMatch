@@ -211,7 +211,8 @@ def _call_llm(prompt: str) -> dict:
     payload = {
         "model": "llama-3.3-70b-versatile",
         "messages": [{"role": "user", "content": prompt}],
-        "temperature": 0.2,
+        "temperature": 0,
+        "seed": 42,
         "max_tokens": 1024,
     }
 
