@@ -134,7 +134,7 @@ export default function PostingApplicationsPage() {
 
   const openAccept = (application: PostingApplicationOut) => {
     setAcceptTarget(application)
-    setOffer(emptyOffer(application.applicant.roles[0]))
+    setOffer(emptyOffer(title))
     setOfferError(null)
   }
 

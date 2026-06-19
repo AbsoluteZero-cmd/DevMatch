@@ -35,6 +35,7 @@ interface InboxItem {
   created_by_id: number
   created_by_name: string
   last_message: string | null
+  last_message_at: string | null
   offer_status: string | null
   team_id: string | null
   job_posting_id: string | null
@@ -166,11 +167,19 @@ export default function InboxPage() {
             ]
           })
         }
-        setItems((prev: InboxItem[]) =>
-          prev.map((i: InboxItem) =>
-            i.room_id === data.room_id ? { ...i, last_message: data.content } : i
+        setItems((prev: InboxItem[]) => {
+          const updated = prev.map((i: InboxItem) =>
+            i.room_id === data.room_id
+              ? { ...i, last_message: data.content, last_message_at: data.timestamp }
+              : i
           )
-        )
+          updated.sort((a, b) => {
+            const ta = a.last_message_at || a.invited_at
+            const tb = b.last_message_at || b.invited_at
+            return new Date(tb).getTime() - new Date(ta).getTime()
+          })
+          return updated
+        })
         // Being on the inbox counts as read; the global unread badge is
         // managed by UnreadProvider (so it works from any page).
         clearUnread()
@@ -290,11 +299,19 @@ export default function InboxPage() {
     try {
       const msg = await sendRoomMessage<ChatMessage>(selected.room_id, newMessage.trim())
       setMessages((prev) => [...prev, msg])
-      setItems((prev) =>
-        prev.map((i) =>
-          i.id === selected.id ? { ...i, last_message: msg.content } : i
+      setItems((prev: InboxItem[]) => {
+        const updated = prev.map((i: InboxItem) =>
+          i.id === selected.id
+            ? { ...i, last_message: msg.content, last_message_at: msg.created_at }
+            : i
         )
-      )
+        updated.sort((a: InboxItem, b: InboxItem) => {
+          const ta = a.last_message_at || a.invited_at
+          const tb = b.last_message_at || b.invited_at
+          return new Date(tb).getTime() - new Date(ta).getTime()
+        })
+        return updated
+      })
       setNewMessage("")
     } catch {}
     setSending(false)

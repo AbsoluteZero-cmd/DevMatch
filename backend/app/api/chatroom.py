@@ -90,6 +90,7 @@ class InboxItemResponse(BaseModel):
     created_by_id: int
     created_by_name: str
     last_message: Optional[str]
+    last_message_at: Optional[datetime] = None
 
     offer_status: Optional[str] = None
     team_id: Optional[str] = None
@@ -209,12 +210,15 @@ async def send_message(
         .filter(
             ChatParticipant.room_id == room_id,
             ChatParticipant.user_id == current_user.id,
-            ChatParticipant.status == "accepted",
+            ChatParticipant.status.in_([
+                ChatParticipantStatus.ACCEPTED,
+                ChatParticipantStatus.CREATOR,
+            ]),
         )
         .first()
     )
 
-    if not participant and room.created_by_id != current_user.id:
+    if not participant:
         raise HTTPException(
             status_code=403,
             detail="You are not a participant of this room. Please accept the invitation first.",
@@ -309,6 +313,8 @@ async def get_inbox(
 
         offer = db.query(Offer).filter(Offer.chat_room_id == room.id).first()
 
+        last_message_at = last_msg.created_at if last_msg else None
+
         items.append(
             InboxItemResponse(
                 id=participant.id if participant else room.id,
@@ -321,6 +327,7 @@ async def get_inbox(
                 created_by_id=room.created_by_id,
                 created_by_name=creator.full_name if creator else "Unknown",
                 last_message=last_msg.content if last_msg else None,
+                last_message_at=last_message_at,
                 offer_status=offer.status.value if offer else None,
                 team_id=str(offer.team_id) if offer else None,
                 job_posting_id=(
@@ -334,6 +341,12 @@ async def get_inbox(
                 compensation_details=offer.compensation_details if offer else None,
             )
         )
+
+    # Sort by most recent activity: last message time, falling back to invited_at
+    items.sort(
+        key=lambda item: item.last_message_at or item.invited_at,
+        reverse=True,
+    )
 
     return items
 
@@ -587,13 +600,6 @@ async def decline_chat(
     if not participant:
         raise HTTPException(status_code=404, detail="Invitation not found")
 
-    if participant.status != ChatParticipantStatus.PENDING:
-        raise HTTPException(status_code=400, detail="Invitation is not pending")
-
-    participant.status = ChatParticipantStatus.DECLINED
-    db.commit()
-    db.refresh(participant)
-
     offer = (
         db.query(Offer)
         .filter(Offer.chat_room_id == chat_id, Offer.recipient_id == current_user.id)
@@ -603,9 +609,14 @@ async def decline_chat(
     if not offer:
         raise HTTPException(status_code=404, detail="Offer not found")
 
+    if offer.status not in (OfferStatus.PENDING, OfferStatus.INTERESTED):
+        raise HTTPException(status_code=400, detail="Offer is not active")
+
+    participant.status = ChatParticipantStatus.DECLINED
     offer.status = OfferStatus.DECLINED
     offer.responded_at = datetime.utcnow()
     db.commit()
+    db.refresh(participant)
 
     await manager.broadcast_to_users(
         [offer.recipient_id, offer.sender_id],
